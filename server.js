@@ -112,6 +112,17 @@ app.delete('/admin/remove-athlete/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Admin Reorder Athletes Bulk
+app.put('/admin/reorder-athletes', (req, res) => {
+  const { orders } = req.body;
+  if (!orders || !Array.isArray(orders)) {
+    return res.status(400).json({ error: 'orders array required' });
+  }
+  db.reorderAthletes(orders);
+  broadcastUpdate();
+  res.json({ success: true });
+});
+
 // Admin Reset Competition
 app.post('/admin/reset', (req, res) => {
   db.resetCompetition(); // Clears completely

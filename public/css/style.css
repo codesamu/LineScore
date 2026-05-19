@@ -651,3 +651,10 @@ body.tv-active #startlist-tab-content::-webkit-scrollbar {
     margin-top: 1.5rem;
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
+
+.athlete-list-item.dragging {
+    opacity: 0.4;
+    border: 2px dashed var(--accent-color) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}

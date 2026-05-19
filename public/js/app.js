@@ -15,7 +15,12 @@ async function fetchAPI(endpoint, method = 'GET', body = null) {
         options.body = JSON.stringify(body);
     }
     const res = await fetch(endpoint, options);
-    const data = await res.json();
+    let data;
+    try {
+        data = await res.json();
+    } catch(e) {
+        throw new Error(`Server returned an invalid response (${res.status}). Please try restarting your server process (e.g., node server.js) to apply backend updates!`);
+    }
     if (!res.ok) {
         throw new Error(data.error || data.message || 'API request failed');
     }
@@ -74,49 +79,80 @@ function initLeaderboard() {
 
     let completedAthletesCache = new Map();
     let firstLoadCompleted = false;
-    let tvScrollInterval = null;
+    let tvScrollRAF = null;
     let currentScrollY = 0;
     let scrollDirection = 1; // 1 = down, -1 = up
     let isScrollPaused = false;
+    let lastFrameTime = 0;
+
+    function animateTVScroll(timestamp) {
+        if (!tvScrollRAF) return;
+
+        const startlistContainer = document.getElementById('startlist-tab-content');
+        const startlistList = document.getElementById('startlist-list');
+
+        if (startlistContainer && startlistList && !isScrollPaused) {
+            const maxScroll = startlistList.offsetHeight - startlistContainer.clientHeight;
+            
+            if (maxScroll > 0) {
+                if (!lastFrameTime) lastFrameTime = timestamp;
+                const delta = Math.min(timestamp - lastFrameTime, 100);
+                lastFrameTime = timestamp;
+
+                const speed = 0.025; // 25 subpixels per second, extremely smooth
+                currentScrollY += scrollDirection * speed * delta;
+
+                if (currentScrollY > maxScroll) currentScrollY = maxScroll;
+                if (currentScrollY < 0) currentScrollY = 0;
+
+                startlistList.style.transform = `translate3d(0, ${-currentScrollY}px, 0)`;
+                startlistList.style.transition = 'transform 0.08s linear';
+
+                if (scrollDirection === 1 && currentScrollY >= maxScroll) {
+                    isScrollPaused = true;
+                    setTimeout(() => {
+                        scrollDirection = -1;
+                        isScrollPaused = false;
+                    }, 2000); // 2 sec pause at bottom
+                } else if (scrollDirection === -1 && currentScrollY <= 0) {
+                    isScrollPaused = true;
+                    setTimeout(() => {
+                        scrollDirection = 1;
+                        isScrollPaused = false;
+                    }, 2000); // 2 sec pause at top
+                }
+            } else {
+                startlistList.style.transform = '';
+            }
+        } else {
+            lastFrameTime = timestamp;
+        }
+
+        tvScrollRAF = requestAnimationFrame(animateTVScroll);
+    }
 
     function startTVScrolling() {
         stopTVScrolling();
-        const startlistContainer = document.getElementById('startlist-tab-content');
-        if (!startlistContainer) return;
-        
-        currentScrollY = startlistContainer.scrollTop;
+        const startlistList = document.getElementById('startlist-list');
+        if (startlistList) {
+            startlistList.style.transform = 'translate3d(0, 0, 0)';
+        }
+        currentScrollY = 0;
         scrollDirection = 1;
         isScrollPaused = false;
-
-        tvScrollInterval = setInterval(() => {
-            if (isScrollPaused) return;
-
-            const maxScroll = startlistContainer.scrollHeight - startlistContainer.clientHeight;
-            if (maxScroll <= 0) return;
-
-            currentScrollY += scrollDirection * 0.45; // ultra-smooth slow scrolling
-            startlistContainer.scrollTop = currentScrollY;
-
-            if (scrollDirection === 1 && startlistContainer.scrollTop >= maxScroll - 1) {
-                isScrollPaused = true;
-                setTimeout(() => {
-                    scrollDirection = -1;
-                    isScrollPaused = false;
-                }, 2000); // 2 sec pause at bottom
-            } else if (scrollDirection === -1 && startlistContainer.scrollTop <= 1) {
-                isScrollPaused = true;
-                setTimeout(() => {
-                    scrollDirection = 1;
-                    isScrollPaused = false;
-                }, 2000); // 2 sec pause at top
-            }
-        }, 50); 
+        lastFrameTime = 0;
+        tvScrollRAF = requestAnimationFrame(animateTVScroll);
     }
 
     function stopTVScrolling() {
-        if (tvScrollInterval) {
-            clearInterval(tvScrollInterval);
-            tvScrollInterval = null;
+        if (tvScrollRAF) {
+            cancelAnimationFrame(tvScrollRAF);
+            tvScrollRAF = null;
+        }
+        const startlistList = document.getElementById('startlist-list');
+        if (startlistList) {
+            startlistList.style.transform = '';
+            startlistList.style.transition = '';
         }
     }
 
@@ -623,31 +659,98 @@ function initAdmin() {
             sortedByOrder.forEach(athlete => {
                 const item = document.createElement('div');
                 item.className = 'athlete-list-item flex-between';
-                item.style.gap = '0.5rem';
+                item.setAttribute('draggable', 'true');
+                item.setAttribute('data-id', athlete.id);
+                item.style.cursor = 'grab';
+                item.style.gap = '1rem';
+                item.style.padding = '0.75rem 1rem';
+                item.style.marginBottom = '0.5rem';
+                item.style.background = 'rgba(255, 255, 255, 0.03)';
+                item.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+                item.style.borderRadius = '12px';
+                
                 item.innerHTML = `
-                    <div class="flex-row flex-grow" style="width: 100%;">
-                        <input type="number" class="order-input" value="${athlete.order_index}" style="width: 70px; padding: 0.5rem; text-align: center; border-radius: 10px;" placeholder="No.">
-                        <input type="text" class="name-input" value="${athlete.name}" style="padding: 0.5rem; border-radius: 10px;" placeholder="Name" class="flex-grow">
+                    <div class="flex-row flex-grow" style="align-items: center; gap: 0.5rem;">
+                        <span style="color: rgba(255, 255, 255, 0.3); font-size: 1.25rem; cursor: grab; user-select: none;">☰</span>
+                        <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 4.5rem; text-align: center;">N° ${athlete.order_index}</div>
+                        <span class="athlete-name-display" style="font-weight: 600;">${athlete.name}</span>
                     </div>
-                    <div class="flex-row">
-                        <button class="btn-primary btn-small save-athlete-btn" data-id="${athlete.id}">Save</button>
+                    <div class="flex-row" style="gap: 0.5rem;">
+                        <button class="btn-secondary btn-small edit-athlete-btn" data-id="${athlete.id}" data-name="${athlete.name}" data-order="${athlete.order_index}">Edit Name</button>
                         <button class="btn-danger btn-small delete-btn" data-id="${athlete.id}">Remove</button>
                     </div>
                 `;
                 listEl.appendChild(item);
             });
 
-            document.querySelectorAll('.save-athlete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const id = e.target.getAttribute('data-id');
-                    const container = e.target.closest('.athlete-list-item');
-                    const name = container.querySelector('.name-input').value;
-                    const order_index = parseInt(container.querySelector('.order-input').value, 10);
-                    if (!name || isNaN(order_index)) return alert('Name and Valid Start Number are required');
+            // HTML5 Drag and Drop listeners
+            listEl.addEventListener('dragstart', (e) => {
+                const item = e.target.closest('.athlete-list-item');
+                if (item) {
+                    item.classList.add('dragging');
+                }
+            });
+
+            listEl.addEventListener('dragend', async (e) => {
+                const item = e.target.closest('.athlete-list-item');
+                if (item) {
+                    item.classList.remove('dragging');
+                    
+                    const items = Array.from(listEl.querySelectorAll('.athlete-list-item'));
+                    const orders = items.map((el, index) => {
+                        return {
+                            id: el.getAttribute('data-id'),
+                            order_index: index + 1
+                        };
+                    });
 
                     try {
-                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, order_index });
-                        alert('Athlete updated!');
+                        await fetchAPI('/admin/reorder-athletes', 'PUT', { orders });
+                        await loadAthletes();
+                    } catch (e) {
+                        alert('Failed to save sequence: ' + e.message);
+                    }
+                }
+            });
+
+            listEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const draggingItem = listEl.querySelector('.dragging');
+                if (!draggingItem) return;
+                const afterElement = getDragAfterElement(listEl, e.clientY);
+                if (afterElement == null) {
+                    listEl.appendChild(draggingItem);
+                } else {
+                    listEl.insertBefore(draggingItem, afterElement);
+                }
+            });
+
+            function getDragAfterElement(container, y) {
+                const draggableElements = Array.from(container.querySelectorAll('.athlete-list-item:not(.dragging)'));
+                return draggableElements.reduce((closest, child) => {
+                    const box = child.getBoundingClientRect();
+                    const offset = y - box.top - box.height / 2;
+                    if (offset < 0 && offset > closest.offset) {
+                        return { offset: offset, element: child };
+                    } else {
+                        return closest;
+                    }
+                }, { offset: Number.NEGATIVE_INFINITY }).element;
+            }
+
+            document.querySelectorAll('.edit-athlete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.getAttribute('data-id');
+                    const currentName = e.target.getAttribute('data-name');
+                    const currentOrder = e.target.getAttribute('data-order');
+                    
+                    const name = prompt('Change Athlete Name:', currentName);
+                    if (name === null) return;
+                    if (name.trim() === '') return alert('Name cannot be empty');
+
+                    try {
+                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, order_index: currentOrder });
+                        await loadAthletes();
                     } catch(e) {
                         alert(e.message);
                     }
@@ -659,6 +762,7 @@ function initAdmin() {
                     const id = e.target.getAttribute('data-id');
                     if(confirm('Are you sure you want to remove this athlete?')) {
                         await fetchAPI(`/admin/remove-athlete/${id}`, 'DELETE');
+                        await loadAthletes();
                     }
                 });
             });

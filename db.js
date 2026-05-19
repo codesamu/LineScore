@@ -81,7 +81,14 @@ module.exports = {
     }
   },
 
-  getAthletes: () => data.athletes,
+  getAthletes: () => {
+    data.athletes.sort((a, b) => a.order_index - b.order_index);
+    data.athletes.forEach((athlete, index) => {
+      athlete.order_index = index + 1;
+    });
+    save();
+    return data.athletes;
+  },
 
   getAthlete: (id) => data.athletes.find(a => a.id === parseInt(id, 10)),
 
@@ -97,6 +104,13 @@ module.exports = {
     const athleteId = parseInt(id, 10);
     data.athletes = data.athletes.filter(a => a.id !== athleteId);
     data.scores = data.scores.filter(s => s.athlete_id !== athleteId);
+    
+    // Sort and re-index remaining athletes sequentially
+    data.athletes.sort((a, b) => a.order_index - b.order_index);
+    data.athletes.forEach((athlete, index) => {
+      athlete.order_index = index + 1;
+    });
+
     save();
   },
 
@@ -108,6 +122,23 @@ module.exports = {
       athlete.order_index = parseInt(order_index, 10);
       save();
     }
+  },
+
+  reorderAthletes: (orders) => {
+    orders.forEach(item => {
+      const athlete = data.athletes.find(a => a.id === parseInt(item.id, 10));
+      if (athlete) {
+        athlete.order_index = parseInt(item.order_index, 10);
+      }
+    });
+    
+    // Sort and sequentially re-index to eliminate any gaps
+    data.athletes.sort((a, b) => a.order_index - b.order_index);
+    data.athletes.forEach((athlete, index) => {
+      athlete.order_index = index + 1;
+    });
+    
+    save();
   },
 
   submitScore: (athleteId, judgeId, score) => {
