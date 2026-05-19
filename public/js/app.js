@@ -214,7 +214,6 @@ function initLeaderboard() {
 
     function enterTVMode() {
         const docEl = document.documentElement;
-        /* Commented out for local testing
         if (docEl.requestFullscreen) {
             docEl.requestFullscreen().catch(() => {});
         } else if (docEl.webkitRequestFullscreen) {
@@ -222,7 +221,6 @@ function initLeaderboard() {
         } else if (docEl.msRequestFullscreen) {
             docEl.msRequestFullscreen();
         }
-        */
 
         document.body.classList.add('tv-active');
         tabContainer.classList.add('hidden');
@@ -233,7 +231,6 @@ function initLeaderboard() {
     }
 
     function exitTVMode() {
-        /* Commented out for local testing
         if (document.fullscreenElement) {
             document.exitFullscreen().catch(() => {});
         } else if (document.webkitExitFullscreen) {
@@ -241,7 +238,6 @@ function initLeaderboard() {
         } else if (document.msExitFullscreen) {
             document.msExitFullscreen();
         }
-        */
 
         document.body.classList.remove('tv-active');
         tabContainer.classList.remove('hidden');

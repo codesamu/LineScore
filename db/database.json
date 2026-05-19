@@ -79,6 +79,30 @@
       "name": "Felix Berger",
       "order_index": 8,
       "completed": 0
+    },
+    {
+      "id": 16,
+      "name": "Lukas Steiner",
+      "order_index": 9,
+      "completed": 0
+    },
+    {
+      "id": 17,
+      "name": "Samuel Fronthaler",
+      "order_index": 10,
+      "completed": 0
+    },
+    {
+      "id": 18,
+      "name": "Uli Mindl",
+      "order_index": 11,
+      "completed": 0
+    },
+    {
+      "id": 19,
+      "name": "Tobias Kahofer",
+      "order_index": 12,
+      "completed": 0
     }
   ],
   "scores": [
@@ -342,6 +366,6 @@
     }
   ],
   "nextJudgeId": 7,
-  "nextAthleteId": 16,
+  "nextAthleteId": 20,
   "nextScoreId": 53
 }
