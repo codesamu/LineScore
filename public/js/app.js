@@ -76,6 +76,7 @@ function initLeaderboard() {
     const exitTvBtn = document.getElementById('exit-tv-btn');
     const tabContainer = document.querySelector('.tabs');
     const footer = document.querySelector('footer');
+    let tvButtonTimeout = null;
 
     let completedAthletesCache = new Map();
     let firstLoadCompleted = false;
@@ -212,6 +213,29 @@ function initLeaderboard() {
         }, 13000);
     }
 
+    function showExitButton() {
+        if (!document.body.classList.contains('tv-active')) return;
+        exitTvBtn.style.opacity = '1';
+        exitTvBtn.style.pointerEvents = 'auto';
+        document.body.style.cursor = '';
+        
+        clearTimeout(tvButtonTimeout);
+        tvButtonTimeout = setTimeout(hideExitButton, 3000);
+    }
+
+    function hideExitButton() {
+        if (!document.body.classList.contains('tv-active')) return;
+        exitTvBtn.style.opacity = '0';
+        exitTvBtn.style.pointerEvents = 'none';
+        document.body.style.cursor = 'none';
+    }
+
+    function handleTVActivity() {
+        if (document.body.classList.contains('tv-active')) {
+            showExitButton();
+        }
+    }
+
     function enterTVMode() {
         const docEl = document.documentElement;
         if (docEl.requestFullscreen) {
@@ -227,6 +251,10 @@ function initLeaderboard() {
         footer.classList.add('hidden');
         tabSplit.click();
         exitTvBtn.classList.remove('hidden');
+        exitTvBtn.style.opacity = '1';
+        exitTvBtn.style.pointerEvents = 'auto';
+        document.body.style.cursor = '';
+        showExitButton();
         setTimeout(startTVScrolling, 1000); // Wait for split animation
     }
 
@@ -243,6 +271,10 @@ function initLeaderboard() {
         tabContainer.classList.remove('hidden');
         footer.classList.remove('hidden');
         exitTvBtn.classList.add('hidden');
+        exitTvBtn.style.opacity = '';
+        exitTvBtn.style.pointerEvents = '';
+        document.body.style.cursor = '';
+        clearTimeout(tvButtonTimeout);
         stopTVScrolling();
     }
 
@@ -259,9 +291,20 @@ function initLeaderboard() {
             tabContainer.classList.remove('hidden');
             footer.classList.remove('hidden');
             exitTvBtn.classList.add('hidden');
+            exitTvBtn.style.opacity = '';
+            exitTvBtn.style.pointerEvents = '';
+            document.body.style.cursor = '';
+            clearTimeout(tvButtonTimeout);
             stopTVScrolling();
         }
     });
+
+    if (exitTvBtn) {
+        document.addEventListener('mousemove', handleTVActivity);
+        document.addEventListener('mousedown', handleTVActivity);
+        document.addEventListener('touchstart', handleTVActivity);
+        document.addEventListener('keydown', handleTVActivity);
+    }
 
     async function loadData() {
         try {
