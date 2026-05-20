@@ -367,5 +367,8 @@
   ],
   "nextJudgeId": 7,
   "nextAthleteId": 20,
-  "nextScoreId": 53
+  "nextScoreId": 53,
+  "config": {
+    "tvScrollMode": "active"
+  }
 }

@@ -31,6 +31,7 @@ function load() {
       data.judges = data.judges || [];
       data.athletes = data.athletes || [];
       data.scores = data.scores || [];
+      data.config = data.config || { tvScrollMode: 'continuous' };
       data.nextJudgeId = data.nextJudgeId || (Math.max(...data.judges.map(j => j.id), 0) + 1);
       data.nextAthleteId = data.nextAthleteId || (Math.max(...data.athletes.map(a => a.id), 0) + 1);
       data.nextScoreId = data.nextScoreId || (Math.max(...data.scores.map(s => s.id), 0) + 1);
@@ -257,6 +258,15 @@ module.exports = {
         });
       }
     });
+    save();
+  },
+
+  getConfig: () => {
+    return data.config || { tvScrollMode: 'continuous' };
+  },
+
+  updateConfig: (newConfig) => {
+    data.config = { ...(data.config || { tvScrollMode: 'continuous' }), ...newConfig };
     save();
   }
 };

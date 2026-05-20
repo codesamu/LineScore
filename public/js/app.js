@@ -236,6 +236,37 @@ function initLeaderboard() {
         }
     }
 
+    function handleTVScrollingMode(mode) {
+        if (!document.body.classList.contains('tv-active')) return;
+
+        if (mode === 'active') {
+            stopTVScrolling();
+            
+            setTimeout(() => {
+                const startlistContainer = document.getElementById('startlist-tab-content');
+                const startlistList = document.getElementById('startlist-list');
+                if (!startlistContainer || !startlistList) return;
+                
+                const nextUpElement = startlistList.querySelector('.leaderboard-item .status-badge.pending')?.closest('.leaderboard-item');
+                let targetScrollY = 0;
+                
+                if (nextUpElement) {
+                    targetScrollY = (nextUpElement.offsetTop + nextUpElement.offsetHeight / 2) - startlistContainer.clientHeight / 2;
+                    const maxScroll = startlistList.offsetHeight - startlistContainer.clientHeight;
+                    if (targetScrollY < 0) targetScrollY = 0;
+                    if (targetScrollY > maxScroll) targetScrollY = maxScroll;
+                }
+                
+                startlistList.style.transition = 'transform 1s cubic-bezier(0.16, 1, 0.3, 1)';
+                startlistList.style.transform = `translate3d(0, ${-targetScrollY}px, 0)`;
+            }, 100);
+        } else {
+            if (!tvScrollRAF) {
+                startTVScrolling();
+            }
+        }
+    }
+
     function enterTVMode() {
         const docEl = document.documentElement;
         if (docEl.requestFullscreen) {
@@ -255,7 +286,7 @@ function initLeaderboard() {
         exitTvBtn.style.pointerEvents = 'auto';
         document.body.style.cursor = '';
         showExitButton();
-        setTimeout(startTVScrolling, 1000); // Wait for split animation
+        setTimeout(loadData, 1000); // Wait for split animation and settle
     }
 
     function exitTVMode() {
@@ -308,9 +339,16 @@ function initLeaderboard() {
 
     async function loadData() {
         try {
-            const data = await fetchAPI('/leaderboard');
+            const [data, cfg] = await Promise.all([
+                fetchAPI('/leaderboard'),
+                fetchAPI('/config')
+            ]);
             renderLeaderboard(data);
             renderStartlist(data);
+
+            if (document.body.classList.contains('tv-active')) {
+                handleTVScrollingMode(cfg.tvScrollMode);
+            }
 
             const completed = data.filter(a => a.completed === 1);
             if (!firstLoadCompleted) {
@@ -678,8 +716,21 @@ function initAdmin() {
     async function loadDashboardData() {
         await Promise.all([
             loadAthletes(),
-            loadJudges()
+            loadJudges(),
+            loadTVConfig()
         ]);
+    }
+
+    async function loadTVConfig() {
+        try {
+            const cfg = await fetchAPI('/config');
+            const selectEl = document.getElementById('tv-scroll-mode-select');
+            if (selectEl && cfg.tvScrollMode) {
+                selectEl.value = cfg.tvScrollMode;
+            }
+        } catch(e) {
+            console.error('Failed to load TV config', e);
+        }
     }
 
     async function loadAthletes() {
@@ -923,6 +974,18 @@ function initAdmin() {
             }
         }
     });
+
+    const tvSelectEl = document.getElementById('tv-scroll-mode-select');
+    if (tvSelectEl) {
+        tvSelectEl.addEventListener('change', async (e) => {
+            const tvScrollMode = e.target.value;
+            try {
+                await fetchAPI('/admin/config', 'PUT', { tvScrollMode });
+            } catch(e) {
+                alert('Failed to update TV config: ' + e.message);
+            }
+        });
+    }
 
     socket.on('state-update', () => {
         if (!adminView.classList.contains('hidden')) {

@@ -140,7 +140,22 @@ app.post('/admin/load-preset', (req, res) => {
 // Config Settings
 app.get('/config', (req, res) => {
     const judges = db.getJudges();
-    res.json({ numJudges: judges.length });
+    const config = db.getConfig();
+    res.json({ 
+        numJudges: judges.length,
+        ...config
+    });
+});
+
+// Admin Update Config
+app.put('/admin/config', (req, res) => {
+    const { tvScrollMode } = req.body;
+    if (tvScrollMode && ['continuous', 'active'].includes(tvScrollMode)) {
+        db.updateConfig({ tvScrollMode });
+        broadcastUpdate();
+        return res.json({ success: true });
+    }
+    res.status(400).json({ error: 'Invalid config settings' });
 });
 
 // Admin Manage Judges Endpoints
