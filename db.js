@@ -1,145 +1,159 @@
-const fs = require('fs');
+const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const dbDir = path.join(__dirname, 'db');
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir);
 }
-const dbPath = path.join(dbDir, 'database.json');
+const dbPath = path.join(dbDir, 'database.sqlite');
+const db = new Database(dbPath);
 
-let data = {
-  judges: [
-    { id: 1, username: 'Judge1', pin: '1111' },
-    { id: 2, username: 'Judge2', pin: '2222' },
-    { id: 3, username: 'Judge3', pin: '3333' },
-    { id: 4, username: 'Judge4', pin: '4444' },
-    { id: 5, username: 'Judge5', pin: '5555' },
-    { id: 6, username: 'Judge6', pin: '6666' }
-  ],
-  athletes: [],
-  scores: [],
-  nextJudgeId: 7,
-  nextAthleteId: 1,
-  nextScoreId: 1
-};
+// Initialize tables if they don't exist
+db.exec(`
+  CREATE TABLE IF NOT EXISTS judges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    pin TEXT
+  );
+  CREATE TABLE IF NOT EXISTS athletes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    order_index INTEGER,
+    completed BOOLEAN DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    athlete_id INTEGER,
+    judge_id INTEGER,
+    score INTEGER,
+    UNIQUE(athlete_id, judge_id)
+  );
+  CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
 
-function load() {
-  if (fs.existsSync(dbPath)) {
+// Insert default config if empty
+const configCount = db.prepare('SELECT COUNT(*) as count FROM config').get();
+if (configCount.count === 0) {
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('tvScrollMode', 'continuous');
+}
+
+// Migrate data from database.json if sqlite is empty and json exists
+const jsonPath = path.join(dbDir, 'database.json');
+if (fs.existsSync(jsonPath)) {
+  const judgesCount = db.prepare('SELECT COUNT(*) as count FROM judges').get().count;
+  const athletesCount = db.prepare('SELECT COUNT(*) as count FROM athletes').get().count;
+  
+  if (judgesCount === 0 && athletesCount === 0) {
+    console.log('Migrating data from database.json to database.sqlite...');
     try {
-      data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-      // Ensure arrays and IDs exist
-      data.judges = data.judges || [];
-      data.athletes = data.athletes || [];
-      data.scores = data.scores || [];
-      data.config = data.config || { tvScrollMode: 'continuous' };
-      data.nextJudgeId = data.nextJudgeId || (Math.max(...data.judges.map(j => j.id), 0) + 1);
-      data.nextAthleteId = data.nextAthleteId || (Math.max(...data.athletes.map(a => a.id), 0) + 1);
-      data.nextScoreId = data.nextScoreId || (Math.max(...data.scores.map(s => s.id), 0) + 1);
+      const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      db.transaction(() => {
+        if (data.judges) {
+          const insertJudge = db.prepare('INSERT INTO judges (id, username, pin) VALUES (?, ?, ?)');
+          data.judges.forEach(j => insertJudge.run(j.id, j.username, j.pin));
+        }
+        if (data.athletes) {
+          const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed) VALUES (?, ?, ?, ?)');
+          data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0));
+        }
+        if (data.scores) {
+          const insertScore = db.prepare('INSERT INTO scores (id, athlete_id, judge_id, score) VALUES (?, ?, ?, ?)');
+          data.scores.forEach(s => insertScore.run(s.id, s.athlete_id, s.judge_id, s.score));
+        }
+        if (data.config) {
+          const insertConfig = db.prepare('INSERT INTO config (key, value) VALUES (?, ?)');
+          for (const [key, value] of Object.entries(data.config)) {
+            insertConfig.run(key, value);
+          }
+        }
+      })();
+      console.log('Migration complete. You can now delete database.json if you wish.');
     } catch (e) {
-      console.error("Failed to load database.json, resetting to default", e);
-      save();
+      console.error('Failed to migrate database.json', e);
     }
-  } else {
-    save();
   }
 }
 
-function save() {
-  fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
-}
-
-// Initial Load
-load();
-
 module.exports = {
-  getJudges: () => data.judges,
+  getJudges: () => db.prepare('SELECT * FROM judges').all(),
 
-  getJudge: (id) => data.judges.find(j => j.id === parseInt(id, 10)),
+  getJudge: (id) => db.prepare('SELECT * FROM judges WHERE id = ?').get(parseInt(id, 10)),
 
-  getJudgeByLogin: (username, pin) => data.judges.find(j => j.username.toLowerCase() === username.toLowerCase() && j.pin === pin),
+  getJudgeByLogin: (username, pin) => db.prepare('SELECT * FROM judges WHERE LOWER(username) = LOWER(?) AND pin = ?').get(username, pin),
 
   addJudge: (username, pin) => {
-    const id = data.nextJudgeId++;
-    data.judges.push({ id, username, pin });
-    save();
-    return id;
+    const info = db.prepare('INSERT INTO judges (username, pin) VALUES (?, ?)').run(username, pin);
+    return info.lastInsertRowid;
   },
 
   removeJudge: (id) => {
     const judgeId = parseInt(id, 10);
-    data.judges = data.judges.filter(j => j.id !== judgeId);
-    data.scores = data.scores.filter(s => s.judge_id !== judgeId);
-    save();
+    db.prepare('DELETE FROM judges WHERE id = ?').run(judgeId);
+    db.prepare('DELETE FROM scores WHERE judge_id = ?').run(judgeId);
   },
 
   updateJudge: (id, username, pin) => {
-    const judgeId = parseInt(id, 10);
-    const judge = data.judges.find(j => j.id === judgeId);
-    if (judge) {
-      judge.username = username;
-      judge.pin = pin;
-      save();
-    }
+    db.prepare('UPDATE judges SET username = ?, pin = ? WHERE id = ?').run(username, pin, parseInt(id, 10));
   },
 
   getAthletes: () => {
-    data.athletes.sort((a, b) => a.order_index - b.order_index);
-    data.athletes.forEach((athlete, index) => {
-      athlete.order_index = index + 1;
-    });
-    save();
-    return data.athletes;
+    const athletes = db.prepare('SELECT * FROM athletes ORDER BY order_index ASC').all();
+    const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
+    db.transaction(() => {
+      athletes.forEach((athlete, index) => {
+        const newOrder = index + 1;
+        if (athlete.order_index !== newOrder) {
+          updateOrder.run(newOrder, athlete.id);
+          athlete.order_index = newOrder;
+        }
+      });
+    })();
+    return athletes;
   },
 
-  getAthlete: (id) => data.athletes.find(a => a.id === parseInt(id, 10)),
+  getAthlete: (id) => db.prepare('SELECT * FROM athletes WHERE id = ?').get(parseInt(id, 10)),
 
   addAthlete: (name) => {
-    const id = data.nextAthleteId++;
-    const nextOrder = Math.max(...data.athletes.map(a => a.order_index), 0) + 1;
-    data.athletes.push({ id, name, order_index: nextOrder, completed: 0 });
-    save();
-    return id;
+    const maxOrderRow = db.prepare('SELECT MAX(order_index) as maxOrder FROM athletes').get();
+    const nextOrder = (maxOrderRow.maxOrder || 0) + 1;
+    const info = db.prepare('INSERT INTO athletes (name, order_index, completed) VALUES (?, ?, 0)').run(name, nextOrder);
+    return info.lastInsertRowid;
   },
 
   removeAthlete: (id) => {
     const athleteId = parseInt(id, 10);
-    data.athletes = data.athletes.filter(a => a.id !== athleteId);
-    data.scores = data.scores.filter(s => s.athlete_id !== athleteId);
-    
-    // Sort and re-index remaining athletes sequentially
-    data.athletes.sort((a, b) => a.order_index - b.order_index);
-    data.athletes.forEach((athlete, index) => {
-      athlete.order_index = index + 1;
-    });
-
-    save();
+    db.transaction(() => {
+      db.prepare('DELETE FROM athletes WHERE id = ?').run(athleteId);
+      db.prepare('DELETE FROM scores WHERE athlete_id = ?').run(athleteId);
+      
+      const athletes = db.prepare('SELECT id FROM athletes ORDER BY order_index ASC').all();
+      const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
+      athletes.forEach((a, idx) => {
+        updateOrder.run(idx + 1, a.id);
+      });
+    })();
   },
 
   updateAthlete: (id, name, order_index) => {
-    const athleteId = parseInt(id, 10);
-    const athlete = data.athletes.find(a => a.id === athleteId);
-    if (athlete) {
-      athlete.name = name;
-      athlete.order_index = parseInt(order_index, 10);
-      save();
-    }
+    db.prepare('UPDATE athletes SET name = ?, order_index = ? WHERE id = ?').run(name, parseInt(order_index, 10), parseInt(id, 10));
   },
 
   reorderAthletes: (orders) => {
-    orders.forEach(item => {
-      const athlete = data.athletes.find(a => a.id === parseInt(item.id, 10));
-      if (athlete) {
-        athlete.order_index = parseInt(item.order_index, 10);
-      }
-    });
-    
-    // Sort and sequentially re-index to eliminate any gaps
-    data.athletes.sort((a, b) => a.order_index - b.order_index);
-    data.athletes.forEach((athlete, index) => {
-      athlete.order_index = index + 1;
-    });
-    
-    save();
+    db.transaction(() => {
+      const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
+      orders.forEach(item => {
+        updateOrder.run(parseInt(item.order_index, 10), parseInt(item.id, 10));
+      });
+      
+      const athletes = db.prepare('SELECT id FROM athletes ORDER BY order_index ASC').all();
+      athletes.forEach((a, idx) => {
+        updateOrder.run(idx + 1, a.id);
+      });
+    })();
   },
 
   submitScore: (athleteId, judgeId, score) => {
@@ -151,76 +165,72 @@ module.exports = {
       throw new Error(`Invalid score submission: athleteId=${athleteId}, judgeId=${judgeId}, score=${score}`);
     }
 
-    let scoreObj = data.scores.find(s => s.athlete_id === aId && s.judge_id === jId);
-    if (scoreObj) {
-      scoreObj.score = sVal;
-    } else {
-      scoreObj = { id: data.nextScoreId++, athlete_id: aId, judge_id: jId, score: sVal };
-      data.scores.push(scoreObj);
-    }
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO scores (athlete_id, judge_id, score) 
+        VALUES (?, ?, ?) 
+        ON CONFLICT(athlete_id, judge_id) 
+        DO UPDATE SET score = excluded.score
+      `).run(aId, jId, sVal);
 
-    // Check completion
-    const athleteScores = data.scores.filter(s => s.athlete_id === aId);
-    const judgeCount = data.judges.length;
+      // Check completion
+      const athleteScoresCount = db.prepare('SELECT COUNT(*) as count FROM scores WHERE athlete_id = ?').get(aId).count;
+      const judgeCount = db.prepare('SELECT COUNT(*) as count FROM judges').get().count;
 
-    const athlete = data.athletes.find(a => a.id === aId);
-    if (athlete) {
-      if (athleteScores.length >= judgeCount && judgeCount > 0) {
-        athlete.completed = 1;
+      if (athleteScoresCount >= judgeCount && judgeCount > 0) {
+        db.prepare('UPDATE athletes SET completed = 1 WHERE id = ?').run(aId);
       }
-    }
-
-    save();
+    })();
   },
 
   getScore: (athleteId, judgeId) => {
-    return data.scores.find(s => s.athlete_id === parseInt(athleteId, 10) && s.judge_id === parseInt(judgeId, 10));
+    return db.prepare('SELECT * FROM scores WHERE athlete_id = ? AND judge_id = ?').get(parseInt(athleteId, 10), parseInt(judgeId, 10));
   },
 
   getScoresForAthlete: (athleteId) => {
-    return data.scores.filter(s => s.athlete_id === parseInt(athleteId, 10));
+    return db.prepare('SELECT * FROM scores WHERE athlete_id = ?').all(parseInt(athleteId, 10));
   },
 
   getLeaderboard: () => {
-    return data.athletes.map(a => {
-      const athleteScores = data.scores.filter(s => s.athlete_id === a.id);
-      const totalScore = athleteScores.reduce((sum, s) => sum + s.score, 0);
-      return {
-        id: a.id,
-        name: a.name,
-        order_index: a.order_index,
-        completed: a.completed,
-        total_score: totalScore,
-        score_count: athleteScores.length
-      };
-    }).sort((a, b) => b.total_score - a.total_score || a.id - b.id);
+    return db.prepare(`
+      SELECT 
+        a.id, 
+        a.name, 
+        a.order_index, 
+        a.completed,
+        COALESCE(SUM(s.score), 0) as total_score,
+        COUNT(s.id) as score_count
+      FROM athletes a
+      LEFT JOIN scores s ON a.id = s.athlete_id
+      GROUP BY a.id
+      ORDER BY total_score DESC, a.id ASC
+    `).all();
   },
 
   resetCompetition: (dummyAthletesList) => {
-    data.athletes = [];
-    data.scores = [];
-    data.nextAthleteId = 1;
-    data.nextScoreId = 1;
+    db.transaction(() => {
+      db.prepare('DELETE FROM athletes').run();
+      db.prepare('DELETE FROM scores').run();
+      db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('athletes', 'scores')").run();
 
-    if (dummyAthletesList && dummyAthletesList.length > 0) {
-      dummyAthletesList.forEach(athlete => {
-        const id = data.nextAthleteId++;
-        data.athletes.push({ id, name: athlete.name, order_index: athlete.order, completed: athlete.completed });
-
-        if (athlete.completed && athlete.scores && athlete.scores.length > 0) {
-          data.judges.forEach((judge, idx) => {
-            const score = athlete.scores[idx % athlete.scores.length];
-            data.scores.push({
-              id: data.nextScoreId++,
-              athlete_id: id,
-              judge_id: judge.id,
-              score: parseInt(score, 10)
+      if (dummyAthletesList && dummyAthletesList.length > 0) {
+        const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed) VALUES (?, ?, ?)');
+        const insertScore = db.prepare('INSERT INTO scores (athlete_id, judge_id, score) VALUES (?, ?, ?)');
+        const judges = db.prepare('SELECT id FROM judges').all();
+        
+        dummyAthletesList.forEach(athlete => {
+          const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed);
+          const aId = info.lastInsertRowid;
+          
+          if (athlete.completed && athlete.scores && athlete.scores.length > 0) {
+            judges.forEach((judge, idx) => {
+              const score = athlete.scores[idx % athlete.scores.length];
+              insertScore.run(aId, judge.id, parseInt(score, 10));
             });
-          });
-        }
-      });
-    }
-    save();
+          }
+        });
+      }
+    })();
   },
 
   loadPreset: () => {
@@ -236,37 +246,22 @@ module.exports = {
       { name: 'Felix Berger', order: 9, completed: 0, scores: [] },
       { name: 'Lisa Moser', order: 10, completed: 0, scores: [] }
     ];
-
-    data.athletes = [];
-    data.scores = [];
-    data.nextAthleteId = 1;
-    data.nextScoreId = 1;
-
-    dummyAthletes.forEach(athlete => {
-      const id = data.nextAthleteId++;
-      data.athletes.push({ id, name: athlete.name, order_index: athlete.order, completed: athlete.completed });
-
-      if (athlete.completed && athlete.scores && athlete.scores.length > 0) {
-        data.judges.forEach((judge, idx) => {
-          const score = athlete.scores[idx % athlete.scores.length];
-          data.scores.push({
-            id: data.nextScoreId++,
-            athlete_id: id,
-            judge_id: judge.id,
-            score: parseInt(score, 10)
-          });
-        });
-      }
-    });
-    save();
+    module.exports.resetCompetition(dummyAthletes);
   },
 
   getConfig: () => {
-    return data.config || { tvScrollMode: 'continuous' };
+    const rows = db.prepare('SELECT key, value FROM config').all();
+    const config = {};
+    rows.forEach(r => { config[r.key] = r.value; });
+    return Object.keys(config).length > 0 ? config : { tvScrollMode: 'continuous' };
   },
 
   updateConfig: (newConfig) => {
-    data.config = { ...(data.config || { tvScrollMode: 'continuous' }), ...newConfig };
-    save();
+    db.transaction(() => {
+      const updateStmt = db.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+      for (const [key, value] of Object.entries(newConfig)) {
+        updateStmt.run(key, value);
+      }
+    })();
   }
 };
