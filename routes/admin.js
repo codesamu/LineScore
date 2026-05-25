@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { validate, asyncHandler } = require('../middlewares/validation');
+const { validateLicenseKey } = require('../utils/license');
 
 // Helper to broadcast state update
 const broadcastUpdate = (req) => {
@@ -77,6 +78,16 @@ router.put('/config', asyncHandler((req, res) => {
             return res.status(400).json({ error: 'Invalid scoringFormula' });
         }
         update.scoringFormula = req.body.scoringFormula;
+    }
+    if (req.body.hasOwnProperty('licenseKey')) {
+        const key = req.body.licenseKey;
+        if (key && key.trim() !== '') {
+            const licenseInfo = validateLicenseKey(key);
+            if (!licenseInfo.isLicensed) {
+                return res.status(400).json({ error: licenseInfo.error || 'Invalid license key' });
+            }
+        }
+        update.licenseKey = key;
     }
     if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'No valid config fields provided' });

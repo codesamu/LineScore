@@ -27,6 +27,27 @@ async function fetchAPI(endpoint, method = 'GET', body = null) {
     return data;
 }
 
+// --- Global Branding Visibility ---
+function applyBrandingVisibility(isLicensed) {
+    document.querySelectorAll('.made-by-branding').forEach(el => {
+        if (isLicensed) {
+            el.classList.add('hidden');
+        } else {
+            el.classList.remove('hidden');
+        }
+    });
+}
+
+async function checkBranding() {
+    try {
+        const cfg = await fetchAPI('/config');
+        applyBrandingVisibility(cfg.isLicensed);
+        return cfg;
+    } catch(e) {
+        console.error('Failed to check branding', e);
+    }
+}
+
 // --- Leaderboard Logic ---
 function initLeaderboard() {
     const leaderboardListEl = document.getElementById('leaderboard-list');
@@ -343,6 +364,7 @@ function initLeaderboard() {
                 fetchAPI('/leaderboard'),
                 fetchAPI('/config')
             ]);
+            applyBrandingVisibility(cfg.isLicensed);
             renderLeaderboard(data);
             renderStartlist(data);
 
@@ -466,6 +488,7 @@ function initJudge() {
         try {
             const cfg = await fetchAPI('/config');
             numJudges = cfg.numJudges;
+            applyBrandingVisibility(cfg.isLicensed);
         } catch(e) {}
     }
     loadConfig();
@@ -724,6 +747,8 @@ function initAdmin() {
     async function loadTVConfig() {
         try {
             const cfg = await fetchAPI('/config');
+            applyBrandingVisibility(cfg.isLicensed);
+            updateLicenseUI(cfg);
             const selectEl = document.getElementById('tv-scroll-mode-select');
             if (selectEl && cfg.tvScrollMode) {
                 selectEl.value = cfg.tvScrollMode;
@@ -1001,6 +1026,63 @@ function initAdmin() {
                 alert('Failed to update scoring formula: ' + e.message);
             }
         });
+    }
+
+    // License Key settings form handling
+    const licenseKeyForm = document.getElementById('license-key-form');
+    if (licenseKeyForm) {
+        licenseKeyForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const licenseKeyInput = document.getElementById('license-key-input');
+            const licenseKey = licenseKeyInput.value;
+            const statusMessage = document.getElementById('license-status-message');
+
+            try {
+                // Call admin/config API to update the licenseKey in DB config
+                await fetchAPI('/admin/config', 'PUT', { licenseKey });
+                
+                // Fetch the new config status
+                const cfg = await fetchAPI('/config');
+                applyBrandingVisibility(cfg.isLicensed);
+                updateLicenseUI(cfg);
+            } catch (e) {
+                statusMessage.className = 'error';
+                statusMessage.textContent = 'Error: ' + e.message;
+                statusMessage.classList.remove('hidden');
+            }
+        });
+    }
+
+    function updateLicenseUI(cfg) {
+        const statusMessage = document.getElementById('license-status-message');
+        const licenseKeyInput = document.getElementById('license-key-input');
+        if (!statusMessage) return;
+
+        if (cfg.licenseKey) {
+            licenseKeyInput.value = cfg.licenseKey;
+        } else {
+            licenseKeyInput.value = '';
+        }
+
+        if (!cfg.licenseKey) {
+            statusMessage.style.background = 'rgba(0, 0, 0, 0.03)';
+            statusMessage.style.color = 'var(--text-secondary)';
+            statusMessage.style.border = '1px solid rgba(0, 0, 0, 0.05)';
+            statusMessage.textContent = '⚪ No active license key loaded. The "Made by Samuel Fronthaler" branding footer is visible.';
+            statusMessage.classList.remove('hidden');
+        } else if (cfg.isLicensed) {
+            statusMessage.style.background = 'rgba(52, 199, 89, 0.1)';
+            statusMessage.style.color = '#248a3d';
+            statusMessage.style.border = '1px solid rgba(52, 199, 89, 0.15)';
+            statusMessage.textContent = `🎉 License Active: Registered to "${cfg.licensee}" (Expires: ${cfg.expiresAt}). Branding footer successfully hidden!`;
+            statusMessage.classList.remove('hidden');
+        } else {
+            statusMessage.style.background = 'rgba(255, 59, 48, 0.08)';
+            statusMessage.style.color = '#ff3b30';
+            statusMessage.style.border = '1px solid rgba(255, 59, 48, 0.12)';
+            statusMessage.textContent = `❌ License Invalid: ${cfg.licenseError || 'Verification failed'}. Branding footer remains visible.`;
+            statusMessage.classList.remove('hidden');
+        }
     }
 
     socket.on('state-update', () => {

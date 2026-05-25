@@ -3,3 +3,4 @@ node_modules
 db/database.sqlite
 db/database.json
 .DS_Store
+private_key.pem

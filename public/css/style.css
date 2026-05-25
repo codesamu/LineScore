@@ -666,3 +666,21 @@ body.tv-active #startlist-tab-content::-webkit-scrollbar {
     background: rgba(255, 255, 255, 0.05) !important;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
 }
+
+/* Made By Branding Footer */
+.made-by-branding {
+    text-align: center;
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.made-by-branding:hover {
+    opacity: 1;
+    color: var(--accent-color);
+}
+

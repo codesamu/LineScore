@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { validate, asyncHandler } = require('../middlewares/validation');
+const { validateLicenseKey } = require('../utils/license');
 
 // Helper to broadcast state update
 const broadcastUpdate = (req) => {
@@ -101,9 +102,16 @@ router.get('/athletes', asyncHandler((req, res) => {
 router.get('/config', asyncHandler((req, res) => {
     const judges = db.getJudges();
     const config = db.getConfig();
+    
+    const licenseInfo = validateLicenseKey(config.licenseKey);
+
     res.json({ 
         numJudges: judges.length,
-        ...config
+        ...config,
+        isLicensed: licenseInfo.isLicensed,
+        licensee: licenseInfo.companyName || null,
+        expiresAt: licenseInfo.expiresAt || null,
+        licenseError: licenseInfo.error || null
     });
 }));
 

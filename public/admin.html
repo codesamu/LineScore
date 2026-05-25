@@ -27,7 +27,12 @@
             </form>
         </main>
         <footer class="mt-4">
-            <a href="/" class="btn-secondary btn-small">View Leaderboard</a>
+            <div style="margin-bottom: 1rem;">
+                <a href="/" class="btn-secondary btn-small">View Leaderboard</a>
+            </div>
+            <div class="made-by-branding" id="made-by-branding">
+                Made by Samuel Fronthaler
+            </div>
         </footer>
     </div>
 
@@ -90,6 +95,16 @@
                 </div>
             </section>
 
+            <section class="card mb-4">
+                <h3>License Key Settings</h3>
+                <p class="text-sm mb-2">Enter your license key or password to remove the "Made by Samuel Fronthaler" branding footer from all pages.</p>
+                <form id="license-key-form" class="flex-row mb-2">
+                    <input type="password" id="license-key-input" placeholder="License Key / Password" required class="flex-grow">
+                    <button type="submit" class="btn-primary">Apply</button>
+                </form>
+                <div id="license-status-message" style="font-weight: 600; font-size: 0.9rem; padding: 0.5rem; border-radius: 12px;" class="hidden"></div>
+            </section>
+
             <section class="card danger-zone">
                 <h3>Competition Actions</h3>
                 <p class="text-sm mb-2">Use these actions to seed a set of 10 demo athletes or clear the database completely.</p>
@@ -99,6 +114,11 @@
                 </div>
             </section>
         </main>
+        <footer class="mt-4">
+            <div class="made-by-branding" id="made-by-branding-dashboard">
+                Made by Samuel Fronthaler
+            </div>
+        </footer>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
