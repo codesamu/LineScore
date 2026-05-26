@@ -38,6 +38,28 @@ function applyBrandingVisibility(isLicensed) {
     });
 }
 
+function showLicenseLockOverlay() {
+    if (document.getElementById('license-lock-overlay')) return;
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'license-lock-overlay';
+    overlay.className = 'license-lock-overlay';
+    overlay.innerHTML = `
+        <div class="lock-card card">
+            <span class="lock-icon">🔒</span>
+            <h2>Commercial License Required</h2>
+            <p style="margin-bottom: 1.5rem; color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+                An active commercial license is required to run this application. The system has been locked.
+            </p>
+            <div class="flex-row" style="justify-content: center; gap: 1rem; flex-wrap: wrap;">
+                <a href="/admin" class="btn-primary btn-small">Admin Panel</a>
+                <a href="mailto:[Email Address]" class="btn-secondary btn-small">Request License</a>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
 async function checkBranding() {
     try {
         const cfg = await fetchAPI('/config');
@@ -365,6 +387,15 @@ function initLeaderboard() {
                 fetchAPI('/config')
             ]);
             applyBrandingVisibility(cfg.isLicensed);
+            
+            if (!cfg.isLicensed) {
+                showLicenseLockOverlay();
+                return;
+            } else {
+                const overlay = document.getElementById('license-lock-overlay');
+                if (overlay) overlay.remove();
+            }
+
             renderLeaderboard(data);
             renderStartlist(data);
 
@@ -489,6 +520,22 @@ function initJudge() {
             const cfg = await fetchAPI('/config');
             numJudges = cfg.numJudges;
             applyBrandingVisibility(cfg.isLicensed);
+            
+            if (!cfg.isLicensed) {
+                showLicenseLockOverlay();
+                dashboardView.classList.add('hidden');
+                loginView.classList.add('hidden');
+                return;
+            } else {
+                const overlay = document.getElementById('license-lock-overlay');
+                if (overlay) overlay.remove();
+                
+                if (judge) {
+                    showDashboard();
+                } else {
+                    loginView.classList.remove('hidden');
+                }
+            }
         } catch(e) {}
     }
     loadConfig();
@@ -1083,6 +1130,19 @@ function initAdmin() {
             statusMessage.textContent = `❌ License Invalid: ${cfg.licenseError || 'Verification failed'}. Branding footer remains visible.`;
             statusMessage.classList.remove('hidden');
         }
+
+        // Lock down all other administrative cards if unlicensed
+        const cards = document.querySelectorAll('#admin-view .card');
+        cards.forEach(card => {
+            const isLicenseCard = card.querySelector('#license-key-form');
+            if (!isLicenseCard) {
+                if (cfg.isLicensed) {
+                    card.classList.remove('unlicensed-disabled');
+                } else {
+                    card.classList.add('unlicensed-disabled');
+                }
+            }
+        });
     }
 
     socket.on('state-update', () => {

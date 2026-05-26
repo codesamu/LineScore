@@ -12,6 +12,23 @@ const broadcastUpdate = (req) => {
   }
 };
 
+// Global license lockdown middleware for api endpoints
+const requireLicense = (req, res, next) => {
+  // Always allow config and login endpoints (login is checked inside for admin/judge distinction)
+  if (req.path === '/config' || req.path === '/login') {
+    return next();
+  }
+
+  const config = db.getConfig();
+  const licenseInfo = validateLicenseKey(config.licenseKey);
+  if (!licenseInfo.isLicensed) {
+    return res.status(402).json({ error: 'License Required. Please activate in the Admin Panel.' });
+  }
+  next();
+};
+
+router.use(requireLicense);
+
 // Login Judge or Admin
 router.post('/login', validate({
   body: {
@@ -24,6 +41,13 @@ router.post('/login', validate({
   
   if (username && username.toLowerCase() === 'admin' && pin === adminPassword) {
     return res.json({ success: true, role: 'admin' });
+  }
+
+  // Block judge logins if the application is not licensed
+  const config = db.getConfig();
+  const licenseInfo = validateLicenseKey(config.licenseKey);
+  if (!licenseInfo.isLicensed) {
+    return res.status(402).json({ error: 'License Required. Judge logins are currently disabled.' });
   }
 
   const judge = db.getJudgeByLogin(username, pin);

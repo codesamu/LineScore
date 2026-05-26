@@ -12,6 +12,23 @@ const broadcastUpdate = (req) => {
   }
 };
 
+// Global license lockdown middleware for all admin endpoints
+const requireLicense = (req, res, next) => {
+  // Always allow updating the licenseKey itself so they can unlock the app
+  if (req.method === 'PUT' && req.path === '/config' && req.body.hasOwnProperty('licenseKey')) {
+    return next();
+  }
+
+  const config = db.getConfig();
+  const licenseInfo = validateLicenseKey(config.licenseKey);
+  if (!licenseInfo.isLicensed) {
+    return res.status(402).json({ error: 'License Required. Please activate in the Admin Panel.' });
+  }
+  next();
+};
+
+router.use(requireLicense);
+
 // Admin Add Athlete
 router.post('/add-athlete', validate({
   body: {
