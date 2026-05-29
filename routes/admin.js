@@ -15,10 +15,10 @@ const broadcastUpdate = (req) => {
 // Global license lockdown middleware for all admin endpoints
 const requireLicense = (req, res, next) => {
   // Always allow the license-related flows so admins can activate the app:
-  //  - PUT /config with licenseKey  → submit a new license key
+  //  - PUT /config with licenseKey or appName → submit a license key or customize display
   //  - GET /config                  → load the admin panel and see license status
   //  - GET /judges                  → needed by the admin dashboard to render
-  if (req.method === 'PUT' && req.path === '/config' && req.body.hasOwnProperty('licenseKey')) {
+  if (req.method === 'PUT' && req.path === '/config' && (req.body.hasOwnProperty('licenseKey') || req.body.hasOwnProperty('appName'))) {
     return next();
   }
   if (req.method === 'GET' && (req.path === '/config' || req.path === '/judges')) {
@@ -101,6 +101,16 @@ router.put('/config', asyncHandler((req, res) => {
             return res.status(400).json({ error: 'Invalid scoringFormula' });
         }
         update.scoringFormula = req.body.scoringFormula;
+    }
+    if (req.body.hasOwnProperty('appName')) {
+        const appName = String(req.body.appName || '').trim();
+        if (!appName) {
+            return res.status(400).json({ error: 'App name cannot be empty' });
+        }
+        if (appName.length > 80) {
+            return res.status(400).json({ error: 'App name must be 80 characters or less' });
+        }
+        update.appName = appName;
     }
     if (req.body.hasOwnProperty('licenseKey')) {
         const key = req.body.licenseKey;

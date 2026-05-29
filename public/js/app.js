@@ -38,6 +38,17 @@ function applyBrandingVisibility(isLicensed) {
     });
 }
 
+function applyAppName(appName) {
+    const name = (appName || 'LineScore').trim() || 'LineScore';
+    document.querySelectorAll('[data-app-name]').forEach(el => {
+        el.textContent = name;
+    });
+
+    if (document.body.classList.contains('leaderboard-page')) {
+        document.title = name;
+    }
+}
+
 function showLicenseLockOverlay() {
     if (document.getElementById('license-lock-overlay')) return;
     
@@ -64,6 +75,7 @@ async function checkBranding() {
     try {
         const cfg = await fetchAPI('/config');
         applyBrandingVisibility(cfg.isLicensed);
+        applyAppName(cfg.appName);
         return cfg;
     } catch(e) {
         console.error('Failed to check branding', e);
@@ -387,6 +399,7 @@ function initLeaderboard() {
                 fetchAPI('/config')
             ]);
             applyBrandingVisibility(cfg.isLicensed);
+            applyAppName(cfg.appName);
             
             if (!cfg.isLicensed) {
                 showLicenseLockOverlay();
@@ -520,6 +533,7 @@ function initJudge() {
             const cfg = await fetchAPI('/config');
             numJudges = cfg.numJudges;
             applyBrandingVisibility(cfg.isLicensed);
+            applyAppName(cfg.appName);
             
             if (!cfg.isLicensed) {
                 showLicenseLockOverlay();
@@ -795,7 +809,12 @@ function initAdmin() {
         try {
             const cfg = await fetchAPI('/config');
             applyBrandingVisibility(cfg.isLicensed);
+            applyAppName(cfg.appName);
             updateLicenseUI(cfg);
+            const appNameEl = document.getElementById('app-name-input');
+            if (appNameEl && cfg.appName) {
+                appNameEl.value = cfg.appName;
+            }
             const selectEl = document.getElementById('tv-scroll-mode-select');
             if (selectEl && cfg.tvScrollMode) {
                 selectEl.value = cfg.tvScrollMode;
@@ -1075,6 +1094,23 @@ function initAdmin() {
         });
     }
 
+    const appNameForm = document.getElementById('app-name-form');
+    if (appNameForm) {
+        appNameForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const appNameInput = document.getElementById('app-name-input');
+            const appName = appNameInput.value.trim();
+            if (!appName) return alert('App name cannot be empty');
+
+            try {
+                await fetchAPI('/admin/config', 'PUT', { appName });
+                applyAppName(appName);
+            } catch(e) {
+                alert('Failed to update app name: ' + e.message);
+            }
+        });
+    }
+
     // License Key settings form handling
     const licenseKeyForm = document.getElementById('license-key-form');
     if (licenseKeyForm) {
@@ -1135,7 +1171,8 @@ function initAdmin() {
         const cards = document.querySelectorAll('#admin-view .card');
         cards.forEach(card => {
             const isLicenseCard = card.querySelector('#license-key-form');
-            if (!isLicenseCard) {
+            const isDisplaySettingsCard = card.querySelector('#app-name-form');
+            if (!isLicenseCard && !isDisplaySettingsCard) {
                 if (cfg.isLicensed) {
                     card.classList.remove('unlicensed-disabled');
                 } else {

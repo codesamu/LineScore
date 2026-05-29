@@ -40,11 +40,17 @@ const configCount = db.prepare('SELECT COUNT(*) as count FROM config').get();
 if (configCount.count === 0) {
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('tvScrollMode', 'continuous');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('scoringFormula', 'sum');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appName', 'LineScore');
 }
 // Ensure scoringFormula config exists (migration for existing databases)
 const hasScoringFormula = db.prepare("SELECT COUNT(*) as count FROM config WHERE key = 'scoringFormula'").get();
 if (hasScoringFormula.count === 0) {
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('scoringFormula', 'sum');
+}
+// Ensure appName config exists (migration for existing databases)
+const hasAppName = db.prepare("SELECT COUNT(*) as count FROM config WHERE key = 'appName'").get();
+if (hasAppName.count === 0) {
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appName', 'LineScore');
 }
 
 // Migrate data from database.json if sqlite is empty and json exists
@@ -305,7 +311,7 @@ module.exports = {
     const rows = db.prepare('SELECT key, value FROM config').all();
     const config = {};
     rows.forEach(r => { config[r.key] = r.value; });
-    return Object.keys(config).length > 0 ? config : { tvScrollMode: 'continuous', scoringFormula: 'sum' };
+    return Object.keys(config).length > 0 ? config : { tvScrollMode: 'continuous', scoringFormula: 'sum', appName: 'LineScore' };
   },
 
   updateConfig: (newConfig) => {
