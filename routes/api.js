@@ -111,13 +111,13 @@ router.get('/scores/:athleteId/:judgeId', validate({
 
 // Get Leaderboard (calculated dynamically)
 router.get('/leaderboard', asyncHandler((req, res) => {
-  const leaderboard = db.getLeaderboard();
+  const leaderboard = db.getLeaderboard(req.query.round);
   res.json(leaderboard);
 }));
 
 // Get all athletes (for admin and judge past athletes view)
 router.get('/athletes', asyncHandler((req, res) => {
-  const athletes = db.getAthletes();
+  const athletes = db.getAthletes(req.query.round);
   const sorted = [...athletes].sort((a,b) => a.order_index - b.order_index);
   res.json(sorted);
 }));

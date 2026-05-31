@@ -544,6 +544,16 @@ function initLeaderboard() {
 function initJudge() {
     const loginView = document.getElementById('login-view');
     const dashboardView = document.getElementById('dashboard-view');
+    const scoreInputEl = document.getElementById('score-input');
+    
+    if (scoreInputEl) {
+        scoreInputEl.addEventListener('input', () => {
+            const activeAthleteId = scoreInputEl.dataset.athleteId;
+            if (activeAthleteId && judge) {
+                localStorage.setItem(`draft_score_${judge.id}_${activeAthleteId}`, scoreInputEl.value);
+            }
+        });
+    }
     
     // Check session
     const judgeStr = sessionStorage.getItem('judge');
@@ -640,6 +650,7 @@ function initJudge() {
         const submitBtn = document.getElementById('submit-score-btn');
         const statusBar = document.getElementById('status-bar');
         const scoreStatus = document.getElementById('score-status');
+        const scoreInputEl = document.getElementById('score-input');
 
         if (!athlete) {
             nameEl.textContent = 'No active athlete at the moment.';
@@ -647,17 +658,25 @@ function initJudge() {
             submitBtn.style.display = 'none';
             statusBar.innerHTML = 'Competition finished or no athletes added.';
             scoreStatus.classList.add('hidden');
+            if (scoreInputEl) {
+                delete scoreInputEl.dataset.athleteId;
+            }
             return;
         }
 
         nameEl.textContent = athlete.name;
         inputContainer.style.display = 'block';
         submitBtn.style.display = 'block';
+        if (scoreInputEl) {
+            scoreInputEl.dataset.athleteId = athlete.id;
+        }
 
         const submittedCount = athlete.submittedJudgeIds ? athlete.submittedJudgeIds.length : 0;
         const hasSubmitted = athlete.submittedJudgeIds && athlete.submittedJudgeIds.includes(judge.id);
 
         statusBar.innerHTML = `Scores submitted: ${submittedCount} / ${numJudges}`;
+
+        const draftScore = localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`);
 
         if (hasSubmitted) {
             submitBtn.textContent = 'Update Score';
@@ -665,13 +684,20 @@ function initJudge() {
             submitBtn.classList.add('btn-secondary');
             submitBtn.disabled = false;
             
-            // Try to fetch my current score
-            try {
-                const myScore = await fetchAPI(`/scores/${athlete.id}/${judge.id}`);
-                if (myScore.score !== null && !document.getElementById('score-input').value) {
-                    document.getElementById('score-input').value = myScore.score;
-                }
-            } catch(e) {}
+            if (draftScore !== null) {
+                if (scoreInputEl) scoreInputEl.value = draftScore;
+            } else {
+                // Try to fetch my current score
+                try {
+                    const myScore = await fetchAPI(`/scores/${athlete.id}/${judge.id}`);
+                    if (myScore.score !== null) {
+                        // Check again in case user typed something while fetch was running
+                        if (localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`) === null) {
+                            if (scoreInputEl) scoreInputEl.value = myScore.score;
+                        }
+                    }
+                } catch(e) {}
+            }
             
             scoreStatus.textContent = 'You have already submitted a score.';
             scoreStatus.classList.remove('hidden');
@@ -681,12 +707,18 @@ function initJudge() {
             submitBtn.classList.add('btn-primary');
             submitBtn.classList.remove('btn-secondary');
             submitBtn.disabled = false;
-            document.getElementById('score-input').value = '';
+            
+            if (draftScore !== null) {
+                if (scoreInputEl) scoreInputEl.value = draftScore;
+            } else {
+                if (scoreInputEl) scoreInputEl.value = '';
+            }
             scoreStatus.classList.add('hidden');
         }
 
         submitBtn.onclick = async () => {
-            const score = parseInt(document.getElementById('score-input').value, 10);
+            if (!scoreInputEl) return;
+            const score = parseInt(scoreInputEl.value, 10);
             if (isNaN(score)) return alert('Please enter a valid score');
 
             submitBtn.disabled = true;
@@ -696,7 +728,8 @@ function initJudge() {
                     judgeId: judge.id,
                     score
                 });
-                document.getElementById('score-input').value = '';
+                localStorage.removeItem(`draft_score_${judge.id}_${athlete.id}`);
+                scoreInputEl.value = '';
                 // The socket update will trigger a reload
             } catch(e) {
                 alert(e.message);
@@ -830,7 +863,7 @@ function initAdmin() {
         await Promise.all([
             loadAthletes(),
             loadJudges(),
-            loadTVConfig()
+            loadConfigSettings()
         ]);
     }
 
@@ -869,37 +902,22 @@ function initAdmin() {
 
         try {
             const data = await fetchAPI('/admin/database');
-            const judges = data.judges || [];
-            const athletes = data.athletes || [];
-            const scores = data.scores || [];
-            const matrix = data.matrix || [];
+            const roundSnapshots = [
+                { key: 'qualification', label: 'Qualification', data: data.qualification || {} },
+                { key: 'finals', label: 'Finals', data: data.finals || {} }
+            ];
+            const allJudges = (data.qualification && data.qualification.judges) || (data.finals && data.finals.judges) || [];
+            const hasAnyData = roundSnapshots.some(snapshot => {
+                const roundData = snapshot.data;
+                return (roundData.athletes || []).length || (roundData.scores || []).length;
+            }) || allJudges.length;
 
-            if (athletes.length === 0 && judges.length === 0 && scores.length === 0) {
+            if (!hasAnyData) {
                 container.innerHTML = '<p class="text-sm">The database is empty.</p>';
                 return;
             }
 
-            const matrixHeader = judges.map(judge => `<th>${escapeHTML(judge.username)}<span class="db-table-meta">#${judge.id}</span></th>`).join('');
-            const matrixRows = matrix.map(row => {
-                const scoreCells = row.scores.map(score => `<td>${score.score === null ? '<span class="db-empty">-</span>' : escapeHTML(score.score)}</td>`).join('');
-                return `
-                    <tr>
-                        <th>N° ${escapeHTML(row.order_index)} ${escapeHTML(row.athlete_name)}<span class="db-table-meta">#${row.athlete_id} ${row.completed ? 'completed' : 'pending'}</span></th>
-                        ${scoreCells}
-                    </tr>
-                `;
-            }).join('');
-
-            const athleteRows = athletes.map(athlete => `
-                <tr>
-                    <td>${escapeHTML(athlete.id)}</td>
-                    <td>${escapeHTML(athlete.name)}</td>
-                    <td>${escapeHTML(athlete.order_index)}</td>
-                    <td>${athlete.completed ? 'Yes' : 'No'}</td>
-                </tr>
-            `).join('');
-
-            const judgeRows = judges.map(judge => `
+            const judgeRows = allJudges.map(judge => `
                 <tr>
                     <td>${escapeHTML(judge.id)}</td>
                     <td>${escapeHTML(judge.username)}</td>
@@ -907,71 +925,108 @@ function initAdmin() {
                 </tr>
             `).join('');
 
-            const scoreRows = scores.map(score => `
-                <tr>
-                    <td>${escapeHTML(score.id)}</td>
-                    <td>${escapeHTML(score.athlete_name || 'Missing athlete')} <span class="db-table-meta">#${escapeHTML(score.athlete_id)}</span></td>
-                    <td>${escapeHTML(score.judge_name || 'Missing judge')} <span class="db-table-meta">#${escapeHTML(score.judge_id)}</span></td>
-                    <td>${escapeHTML(score.score)}</td>
-                </tr>
-            `).join('');
+            const roundSections = roundSnapshots.map(snapshot => {
+                const roundData = snapshot.data;
+                const judges = roundData.judges || allJudges;
+                const athletes = roundData.athletes || [];
+                const scores = roundData.scores || [];
+                const matrix = roundData.matrix || [];
+
+                const matrixHeader = judges.map(judge => `<th>${escapeHTML(judge.username)}<span class="db-table-meta">#${judge.id}</span></th>`).join('');
+                const matrixRows = matrix.map(row => {
+                    const scoreCells = row.scores.map(score => `<td>${score.score === null ? '<span class="db-empty">-</span>' : escapeHTML(score.score)}</td>`).join('');
+                    return `
+                        <tr>
+                            <th>N° ${escapeHTML(row.order_index)} ${escapeHTML(row.athlete_name)}<span class="db-table-meta">#${row.athlete_id} ${row.completed ? 'completed' : 'pending'}</span></th>
+                            ${scoreCells}
+                        </tr>
+                    `;
+                }).join('');
+
+                const athleteRows = athletes.map(athlete => `
+                    <tr>
+                        <td>${escapeHTML(athlete.id)}</td>
+                        <td>${escapeHTML(athlete.name)}</td>
+                        <td>${escapeHTML(athlete.order_index)}</td>
+                        <td>${athlete.completed ? 'Yes' : 'No'}</td>
+                    </tr>
+                `).join('');
+
+                const scoreRows = scores.map(score => `
+                    <tr>
+                        <td>${escapeHTML(score.id)}</td>
+                        <td>${escapeHTML(score.athlete_name || 'Missing athlete')} <span class="db-table-meta">#${escapeHTML(score.athlete_id)}</span></td>
+                        <td>${escapeHTML(score.judge_name || 'Missing judge')} <span class="db-table-meta">#${escapeHTML(score.judge_id)}</span></td>
+                        <td>${escapeHTML(score.score)}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <div class="db-round">
+                        <div class="flex-between mb-4">
+                            <h4>${snapshot.label}</h4>
+                            <span class="status-badge ${data.currentRound === snapshot.key ? 'completed' : 'pending'}">${data.currentRound === snapshot.key ? 'Current' : 'Inactive'}</span>
+                        </div>
+                        <div class="db-section">
+                            <h4>Scores by Athlete and Judge</h4>
+                            <div class="db-table-wrap">
+                                <table class="db-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Athlete</th>
+                                            ${matrixHeader}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${matrixRows || '<tr><td colspan="999">No athletes in this round.</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="db-grid">
+                            <div class="db-section">
+                                <h4>Athletes</h4>
+                                <div class="db-table-wrap">
+                                    <table class="db-table">
+                                        <thead><tr><th>ID</th><th>Name</th><th>Order</th><th>Completed</th></tr></thead>
+                                        <tbody>${athleteRows || '<tr><td colspan="4">No athletes.</td></tr>'}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="db-section">
+                                <h4>Scores Table</h4>
+                                <div class="db-table-wrap">
+                                    <table class="db-table">
+                                        <thead><tr><th>ID</th><th>Athlete</th><th>Judge</th><th>Score</th></tr></thead>
+                                        <tbody>${scoreRows || '<tr><td colspan="4">No scores submitted yet.</td></tr>'}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
 
             container.innerHTML = `
                 <div class="db-section">
-                    <h4>Scores by Athlete and Judge</h4>
+                    <h4>Judges</h4>
                     <div class="db-table-wrap">
                         <table class="db-table">
-                            <thead>
-                                <tr>
-                                    <th>Athlete</th>
-                                    ${matrixHeader}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${matrixRows || '<tr><td colspan="999">No athletes added yet.</td></tr>'}
-                            </tbody>
+                            <thead><tr><th>ID</th><th>Name</th><th>PIN</th></tr></thead>
+                            <tbody>${judgeRows || '<tr><td colspan="3">No judges.</td></tr>'}</tbody>
                         </table>
                     </div>
                 </div>
-
-                <div class="db-grid">
-                    <div class="db-section">
-                        <h4>Athletes</h4>
-                        <div class="db-table-wrap">
-                            <table class="db-table">
-                                <thead><tr><th>ID</th><th>Name</th><th>Order</th><th>Completed</th></tr></thead>
-                                <tbody>${athleteRows || '<tr><td colspan="4">No athletes.</td></tr>'}</tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="db-section">
-                        <h4>Judges</h4>
-                        <div class="db-table-wrap">
-                            <table class="db-table">
-                                <thead><tr><th>ID</th><th>Name</th><th>PIN</th></tr></thead>
-                                <tbody>${judgeRows || '<tr><td colspan="3">No judges.</td></tr>'}</tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="db-section">
-                    <h4>Scores Table</h4>
-                    <div class="db-table-wrap">
-                        <table class="db-table">
-                            <thead><tr><th>ID</th><th>Athlete</th><th>Judge</th><th>Score</th></tr></thead>
-                            <tbody>${scoreRows || '<tr><td colspan="4">No scores submitted yet.</td></tr>'}</tbody>
-                        </table>
-                    </div>
-                </div>
+                ${roundSections}
             `;
         } catch(e) {
             container.innerHTML = `<p class="error">Failed to load database: ${escapeHTML(e.message)}</p>`;
         }
     }
 
-    async function loadTVConfig() {
+    async function loadConfigSettings() {
         try {
             const cfg = await fetchAPI('/config');
             applyBrandingVisibility(cfg.isLicensed);
@@ -989,6 +1044,14 @@ function initAdmin() {
             const formulaEl = document.getElementById('scoring-formula-select');
             if (formulaEl && cfg.scoringFormula) {
                 formulaEl.value = cfg.scoringFormula;
+            }
+            const currentRoundEl = document.getElementById('current-round-select');
+            if (currentRoundEl && cfg.currentRound) {
+                currentRoundEl.value = cfg.currentRound;
+            }
+            const finalistsCountEl = document.getElementById('finalists-count-input');
+            if (finalistsCountEl && cfg.finalistsCount) {
+                finalistsCountEl.value = cfg.finalistsCount;
             }
         } catch(e) {
             console.error('Failed to load config', e);
@@ -1262,6 +1325,43 @@ function initAdmin() {
                 await fetchAPI('/admin/config', 'PUT', { scoringFormula });
             } catch(e) {
                 alert('Failed to update scoring formula: ' + e.message);
+            }
+        });
+    }
+
+    const currentRoundSelectEl = document.getElementById('current-round-select');
+    if (currentRoundSelectEl) {
+        currentRoundSelectEl.addEventListener('change', async (e) => {
+            const currentRound = e.target.value;
+            try {
+                await fetchAPI('/admin/config', 'PUT', { currentRound });
+                await loadAthletes();
+                if (adminDatabaseContent && !adminDatabaseContent.classList.contains('hidden')) {
+                    await loadDatabaseView();
+                }
+            } catch(e) {
+                alert('Failed to update current round: ' + e.message);
+            }
+        });
+    }
+
+    const finalistsCountForm = document.getElementById('finalists-count-form');
+    if (finalistsCountForm) {
+        finalistsCountForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const finalistsCount = parseInt(document.getElementById('finalists-count-input').value, 10);
+            if (!Number.isInteger(finalistsCount) || finalistsCount < 1) {
+                return alert('Enter a valid finalists count');
+            }
+
+            try {
+                await fetchAPI('/admin/config', 'PUT', { finalistsCount });
+                await loadAthletes();
+                if (adminDatabaseContent && !adminDatabaseContent.classList.contains('hidden')) {
+                    await loadDatabaseView();
+                }
+            } catch(e) {
+                alert('Failed to update finalists: ' + e.message);
             }
         });
     }

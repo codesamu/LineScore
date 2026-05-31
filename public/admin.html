@@ -76,6 +76,25 @@
             </section>
 
             <section class="card mb-4">
+                <h3>Competition Round</h3>
+                <div class="form-group">
+                    <label for="current-round-select">Current Round</label>
+                    <select id="current-round-select">
+                        <option value="qualification">Qualification</option>
+                        <option value="finals">Finals</option>
+                    </select>
+                </div>
+                <form id="finalists-count-form" class="flex-row">
+                    <div class="flex-grow">
+                        <label for="finalists-count-input">Athletes in Finals</label>
+                        <input type="number" id="finalists-count-input" min="1" max="100" step="1" value="5" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Update Finals</button>
+                </form>
+                <p class="text-sm mt-2">Finals are built from the highest ranked completed athletes in qualification.</p>
+            </section>
+
+            <section class="card mb-4">
                 <h3>Manage Athletes</h3>
                 <div id="admin-athletes-list" class="athletes-list">
                     <!-- Populated via JS -->

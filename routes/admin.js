@@ -87,6 +87,13 @@ router.put('/reorder-athletes', validate({
   res.json({ success: true });
 }));
 
+router.post('/sync-finalists', asyncHandler((req, res) => {
+  const count = req.body && req.body.finalistsCount ? req.body.finalistsCount : db.getFinalistsCount();
+  db.syncFinalists(count);
+  broadcastUpdate(req);
+  res.json({ success: true });
+}));
+
 // Admin Reset Competition
 router.post('/reset', asyncHandler((req, res) => {
   db.resetCompetition(); // Clears completely
@@ -162,6 +169,24 @@ router.put('/config', asyncHandler((req, res) => {
         }
         update.scoringFormula = req.body.scoringFormula;
     }
+    if (req.body.currentRound) {
+        const validRounds = ['qualification', 'finals'];
+        if (!validRounds.includes(req.body.currentRound)) {
+            return res.status(400).json({ error: 'Invalid currentRound' });
+        }
+        db.setCurrentRound(req.body.currentRound);
+        broadcastUpdate(req);
+        return res.json({ success: true });
+    }
+    if (req.body.hasOwnProperty('finalistsCount')) {
+        const finalistsCount = parseInt(req.body.finalistsCount, 10);
+        if (!Number.isInteger(finalistsCount) || finalistsCount < 1 || finalistsCount > 100) {
+            return res.status(400).json({ error: 'Finalists count must be between 1 and 100' });
+        }
+        db.syncFinalists(finalistsCount);
+        broadcastUpdate(req);
+        return res.json({ success: true });
+    }
     if (req.body.hasOwnProperty('appName')) {
         const appName = String(req.body.appName || '').trim();
         if (!appName) {
@@ -203,7 +228,12 @@ router.get('/judges', asyncHandler((req, res) => {
 }));
 
 router.get('/database', asyncHandler((req, res) => {
-  res.json(db.getDatabaseSnapshot());
+  res.json({
+    currentRound: db.getCurrentRound(),
+    finalistsCount: db.getFinalistsCount(),
+    qualification: db.getDatabaseSnapshot('qualification'),
+    finals: db.getDatabaseSnapshot('finals')
+  });
 }));
 
 router.post('/add-judge', validate({
