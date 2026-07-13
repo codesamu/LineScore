@@ -103,12 +103,32 @@ async function checkBranding() {
     }
 }
 
+function countryFlag(country) {
+    const value = String(country || '').trim();
+    if (!value) return '';
+    const aliases = {
+        austria: 'AT', germany: 'DE', switzerland: 'CH', italy: 'IT', slovenia: 'SI',
+        france: 'FR', spain: 'ES', portugal: 'PT', netherlands: 'NL', belgium: 'BE',
+        poland: 'PL', czechia: 'CZ', 'czech republic': 'CZ', slovakia: 'SK',
+        hungary: 'HU', croatia: 'HR', 'united kingdom': 'GB', uk: 'GB',
+        england: 'GB', ireland: 'IE', usa: 'US', 'united states': 'US'
+    };
+    const code = value.length === 2 ? value.toUpperCase() : aliases[value.toLowerCase()];
+    if (!code || !/^[A-Z]{2}$/.test(code)) return '';
+    return code.replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
 // --- Leaderboard Logic ---
 function initLeaderboard() {
     const leaderboardListEl = document.getElementById('leaderboard-list');
     const startlistListEl = document.getElementById('startlist-list');
     const noLeaderboardEl = document.getElementById('no-leaderboard-data');
     const noStartlistEl = document.getElementById('no-startlist-data');
+    const tvFeatureEl = document.getElementById('tv-athlete-feature');
+    const tvPhotoEl = document.getElementById('tv-athlete-photo');
+    const tvPhotoPlaceholderEl = document.getElementById('tv-athlete-photo-placeholder');
+    const tvNameEl = document.getElementById('tv-athlete-name');
+    const tvCountryEl = document.getElementById('tv-athlete-country');
 
     // Tab Switching Logic
     const tabLeaderboard = document.getElementById('tab-leaderboard');
@@ -356,7 +376,11 @@ function initLeaderboard() {
         document.body.classList.add('tv-active');
         tabContainer.classList.add('hidden');
         footer.classList.add('hidden');
-        tabSplit.click();
+        contentLeaderboard.classList.remove('hidden');
+        contentStartlist.classList.add('hidden');
+        document.querySelector('main').classList.remove('split-view');
+        document.querySelector('.container').classList.remove('split-container');
+        if (tvFeatureEl) tvFeatureEl.classList.remove('hidden');
         exitTvBtn.classList.remove('hidden');
         exitTvBtn.style.opacity = '1';
         exitTvBtn.style.pointerEvents = 'auto';
@@ -375,6 +399,7 @@ function initLeaderboard() {
         }
 
         document.body.classList.remove('tv-active');
+        if (tvFeatureEl) tvFeatureEl.classList.add('hidden');
         tabContainer.classList.remove('hidden');
         footer.classList.remove('hidden');
         exitTvBtn.classList.add('hidden');
@@ -395,6 +420,7 @@ function initLeaderboard() {
     document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement) {
             document.body.classList.remove('tv-active');
+            if (tvFeatureEl) tvFeatureEl.classList.add('hidden');
             tabContainer.classList.remove('hidden');
             footer.classList.remove('hidden');
             exitTvBtn.classList.add('hidden');
@@ -433,8 +459,9 @@ function initLeaderboard() {
 
             renderLeaderboard(data);
             renderStartlist(data);
+            renderTVFeature(data);
 
-            if (document.body.classList.contains('tv-active')) {
+            if (document.body.classList.contains('tv-active') && !tvFeatureEl) {
                 handleTVScrollingMode(cfg.tvScrollMode);
             }
 
@@ -540,6 +567,36 @@ function initLeaderboard() {
         const time = Number(athlete.time_seconds);
         if (!Number.isFinite(time)) return '';
         return `<span class="leaderboard-time">${time.toFixed(2)}s</span>`;
+    }
+
+    function renderTVFeature(data) {
+        if (!tvFeatureEl) return;
+        const active = [...data]
+            .sort((a, b) => a.order_index - b.order_index)
+            .find(athlete => athlete.completed !== 1);
+
+        if (!active) {
+            tvNameEl.textContent = 'No active athlete';
+            tvCountryEl.textContent = 'Competition finished';
+            tvPhotoEl.classList.add('hidden');
+            tvPhotoPlaceholderEl.classList.remove('hidden');
+            tvPhotoPlaceholderEl.textContent = 'Finished';
+            return;
+        }
+
+        tvNameEl.textContent = active.name;
+        const flag = countryFlag(active.country);
+        tvCountryEl.textContent = active.country ? `${flag ? flag + ' ' : ''}${active.country}` : '';
+
+        if (active.image_url) {
+            tvPhotoEl.src = active.image_url;
+            tvPhotoEl.classList.remove('hidden');
+            tvPhotoPlaceholderEl.classList.add('hidden');
+        } else {
+            tvPhotoEl.classList.add('hidden');
+            tvPhotoPlaceholderEl.classList.remove('hidden');
+            tvPhotoPlaceholderEl.textContent = active.name ? active.name.slice(0, 1).toUpperCase() : 'No Photo';
+        }
     }
 
     loadData();
@@ -1229,19 +1286,88 @@ function initAdmin() {
                 item.style.background = 'rgba(255, 255, 255, 0.03)';
                 item.style.border = '1px solid rgba(255, 255, 255, 0.1)';
                 item.style.borderRadius = '12px';
+                const flag = countryFlag(athlete.country);
+                const imageUrl = athlete.image_url || '';
                 
                 item.innerHTML = `
-                    <div class="flex-row flex-grow" style="align-items: center; gap: 0.5rem;">
-                        <span style="color: rgba(255, 255, 255, 0.3); font-size: 1.25rem; cursor: grab; user-select: none;">☰</span>
-                        <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 4.5rem; text-align: center;">N° ${athlete.order_index}</div>
-                        <span class="athlete-name-display" style="font-weight: 600;">${athlete.name}</span>
+                    <div class="admin-athlete-media">
+                        ${imageUrl ? `<img src="${escapeHTML(imageUrl)}" alt="" class="admin-athlete-thumb">` : '<div class="admin-athlete-thumb placeholder">Photo</div>'}
                     </div>
-                    <div class="flex-row" style="gap: 0.5rem;">
-                        <button class="btn-secondary btn-small edit-athlete-btn" data-id="${athlete.id}" data-name="${athlete.name}" data-order="${athlete.order_index}">Edit Name</button>
+                    <div class="admin-athlete-fields flex-grow">
+                        <div class="flex-row" style="align-items: center; gap: 0.5rem;">
+                            <span style="color: rgba(255, 255, 255, 0.3); font-size: 1.25rem; cursor: grab; user-select: none;">☰</span>
+                            <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 4.5rem; text-align: center;">N° ${athlete.order_index}</div>
+                        </div>
+                        <input type="text" class="athlete-name-input" value="${escapeHTML(athlete.name)}" placeholder="Athlete Name">
+                        <input type="text" class="athlete-country-input" value="${escapeHTML(athlete.country || '')}" placeholder="Country">
+                        <span class="athlete-flag-preview">${flag}</span>
+                    </div>
+                    <div class="admin-athlete-actions">
+                        <input type="file" class="athlete-image-input hidden" accept="image/png,image/jpeg,image/gif,image/webp">
+                        <button class="btn-secondary btn-small upload-athlete-image-btn" data-id="${athlete.id}">Photo</button>
+                        <button class="btn-primary btn-small save-athlete-btn" data-id="${athlete.id}" data-order="${athlete.order_index}">Save</button>
                         <button class="btn-danger btn-small delete-btn" data-id="${athlete.id}">Remove</button>
                     </div>
                 `;
                 listEl.appendChild(item);
+            });
+
+            document.querySelectorAll('.athlete-country-input').forEach(input => {
+                input.addEventListener('input', () => {
+                    const item = input.closest('.athlete-list-item');
+                    const preview = item.querySelector('.athlete-flag-preview');
+                    if (preview) preview.textContent = countryFlag(input.value);
+                });
+            });
+
+            document.querySelectorAll('.save-athlete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.target.getAttribute('data-id');
+                    const currentOrder = e.target.getAttribute('data-order');
+                    const item = e.target.closest('.athlete-list-item');
+                    const name = item.querySelector('.athlete-name-input').value.trim();
+                    const country = item.querySelector('.athlete-country-input').value.trim();
+                    if (!name) return alert('Name cannot be empty');
+
+                    try {
+                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, country, order_index: currentOrder });
+                        await loadAthletes();
+                    } catch(e) {
+                        alert(e.message);
+                    }
+                });
+            });
+
+            document.querySelectorAll('.upload-athlete-image-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const item = e.target.closest('.athlete-list-item');
+                    item.querySelector('.athlete-image-input').click();
+                });
+            });
+
+            document.querySelectorAll('.athlete-image-input').forEach(input => {
+                input.addEventListener('change', async () => {
+                    const file = input.files && input.files[0];
+                    if (!file) return;
+                    if (file.size > 5 * 1024 * 1024) return alert('Athlete image must be 5 MB or smaller');
+                    const item = input.closest('.athlete-list-item');
+                    const id = item.getAttribute('data-id');
+
+                    try {
+                        const res = await fetch(`/admin/athlete-image/${id}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': file.type },
+                            body: file
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || data.message || 'Image upload failed');
+                        await loadAthletes();
+                    } catch(e) {
+                        alert('Failed to upload athlete image: ' + e.message);
+                    } finally {
+                        input.value = '';
+                    }
+                });
             });
 
             // HTML5 Drag and Drop listeners
@@ -1298,25 +1424,6 @@ function initAdmin() {
                     }
                 }, { offset: Number.NEGATIVE_INFINITY }).element;
             }
-
-            document.querySelectorAll('.edit-athlete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const id = e.target.getAttribute('data-id');
-                    const currentName = e.target.getAttribute('data-name');
-                    const currentOrder = e.target.getAttribute('data-order');
-                    
-                    const name = prompt('Change Athlete Name:', currentName);
-                    if (name === null) return;
-                    if (name.trim() === '') return alert('Name cannot be empty');
-
-                    try {
-                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, order_index: currentOrder });
-                        await loadAthletes();
-                    } catch(e) {
-                        alert(e.message);
-                    }
-                });
-            });
 
             document.querySelectorAll('.delete-btn').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
@@ -1399,12 +1506,15 @@ function initAdmin() {
     document.getElementById('add-athlete-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const nameInput = document.getElementById('athlete-name-input');
+        const countryInput = document.getElementById('athlete-country-input');
         const name = nameInput.value;
+        const country = countryInput ? countryInput.value : '';
         if (!name) return;
 
         try {
-            await fetchAPI('/admin/add-athlete', 'POST', { name });
+            await fetchAPI('/admin/add-athlete', 'POST', { name, country });
             nameInput.value = '';
+            if (countryInput) countryInput.value = '';
         } catch(e) {
             alert(e.message);
         }

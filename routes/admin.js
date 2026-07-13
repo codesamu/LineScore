@@ -57,8 +57,8 @@ router.post('/add-athlete', validate({
     name: { required: true }
   }
 }), asyncHandler((req, res) => {
-  const { name } = req.body;
-  const id = db.addAthlete(name);
+  const { name, country } = req.body;
+  const id = db.addAthlete(name, undefined, country);
   broadcastUpdate(req);
   res.json({ success: true, id });
 }));
@@ -164,6 +164,42 @@ router.post('/icon', asyncHandler((req, res) => {
     db.updateConfig({ appIconUrl });
     broadcastUpdate(req);
     res.json({ success: true, appIconUrl });
+}));
+
+router.post('/athlete-image/:id', express.raw({
+  type: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+  limit: '5mb'
+}), validate({
+  params: {
+    id: { required: true, type: 'number' }
+  }
+}), asyncHandler((req, res) => {
+    const athleteId = parseInt(req.params.id, 10);
+    const athlete = db.getAthlete(athleteId);
+    if (!athlete) {
+        return res.status(404).json({ error: 'Athlete not found' });
+    }
+
+    const mimeType = String(req.headers['content-type'] || '').split(';')[0].toLowerCase();
+    const type = iconTypes[mimeType];
+    if (!type || type.ext === 'ico') {
+        return res.status(400).json({ error: 'Athlete image must be a PNG, JPG, GIF, or WebP image' });
+    }
+    const buffer = req.body;
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+        return res.status(400).json({ error: 'No athlete image uploaded' });
+    }
+    if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Athlete image must be 5 MB or smaller' });
+    }
+    if (!type.magic(buffer)) {
+        return res.status(400).json({ error: 'Athlete image data does not match the selected file type' });
+    }
+
+    const imageUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+    db.updateAthleteImage(athleteId, imageUrl);
+    broadcastUpdate(req);
+    res.json({ success: true, imageUrl });
 }));
 
 // Admin Update Config
@@ -321,8 +357,8 @@ router.put('/update-athlete/:id', validate({
   }
 }), asyncHandler((req, res) => {
   const { id } = req.params;
-  const { name, order_index } = req.body;
-  db.updateAthlete(id, name, order_index);
+  const { name, order_index, country } = req.body;
+  db.updateAthlete(id, name, order_index, country);
   broadcastUpdate(req);
   res.json({ success: true });
 }));

@@ -23,7 +23,9 @@ db.exec(`
     order_index INTEGER,
     completed BOOLEAN DEFAULT 0,
     round TEXT DEFAULT 'qualification',
-    source_athlete_id INTEGER
+    source_athlete_id INTEGER,
+    country TEXT DEFAULT '',
+    image_url TEXT DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +103,12 @@ if (!athleteColumns.includes('round')) {
 if (!athleteColumns.includes('source_athlete_id')) {
   db.prepare('ALTER TABLE athletes ADD COLUMN source_athlete_id INTEGER').run();
 }
+if (!athleteColumns.includes('country')) {
+  db.prepare("ALTER TABLE athletes ADD COLUMN country TEXT DEFAULT ''").run();
+}
+if (!athleteColumns.includes('image_url')) {
+  db.prepare("ALTER TABLE athletes ADD COLUMN image_url TEXT DEFAULT ''").run();
+}
 
 const normalizeRound = (round) => round === 'finals' ? 'finals' : 'qualification';
 
@@ -167,8 +175,8 @@ if (fs.existsSync(jsonPath)) {
           data.judges.forEach(j => insertJudge.run(j.id, j.username, j.pin));
         }
         if (data.athletes) {
-          const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed, round, source_athlete_id) VALUES (?, ?, ?, ?, ?, ?)');
-          data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0, normalizeRound(a.round), a.source_athlete_id || null));
+          const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+          data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0, normalizeRound(a.round), a.source_athlete_id || null, a.country || '', a.image_url || ''));
         }
         if (data.scores) {
           const insertScore = db.prepare('INSERT INTO scores (id, athlete_id, judge_id, score) VALUES (?, ?, ?, ?)');
@@ -241,11 +249,11 @@ module.exports = {
 
   getAthlete: (id) => db.prepare('SELECT * FROM athletes WHERE id = ?').get(parseInt(id, 10)),
 
-  addAthlete: (name, round) => {
+  addAthlete: (name, round, country = '') => {
     const activeRound = normalizeRound(round || module.exports.getCurrentRound());
     const maxOrderRow = db.prepare('SELECT MAX(order_index) as maxOrder FROM athletes WHERE round = ?').get(activeRound);
     const nextOrder = (maxOrderRow.maxOrder || 0) + 1;
-    const info = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id) VALUES (?, ?, 0, ?, NULL)').run(name, nextOrder, activeRound);
+    const info = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, 0, ?, NULL, ?, ?)').run(name, nextOrder, activeRound, String(country || '').trim(), '');
     return info.lastInsertRowid;
   },
 
@@ -266,8 +274,12 @@ module.exports = {
     })();
   },
 
-  updateAthlete: (id, name, order_index) => {
-    db.prepare('UPDATE athletes SET name = ?, order_index = ? WHERE id = ?').run(name, parseInt(order_index, 10), parseInt(id, 10));
+  updateAthlete: (id, name, order_index, country = '') => {
+    db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ? WHERE id = ?').run(name, parseInt(order_index, 10), String(country || '').trim(), parseInt(id, 10));
+  },
+
+  updateAthleteImage: (id, imageUrl) => {
+    db.prepare('UPDATE athletes SET image_url = ? WHERE id = ?').run(String(imageUrl || '').trim(), parseInt(id, 10));
   },
 
   reorderAthletes: (orders, round) => {
@@ -379,6 +391,8 @@ module.exports = {
     const matrix = athletes.map(athlete => ({
       athlete_id: athlete.id,
       athlete_name: athlete.name,
+      country: athlete.country || '',
+      image_url: athlete.image_url || '',
       order_index: athlete.order_index,
       completed: athlete.completed,
       scores: judges.map(judge => ({
@@ -469,6 +483,8 @@ module.exports = {
         order_index: athlete.order_index,
         completed: athlete.completed,
         round: athlete.round,
+        country: athlete.country || '',
+        image_url: athlete.image_url || '',
         total_score,
         score_count: scores.length,
         time_seconds: timeEntry ? timeSeconds : null,
@@ -490,7 +506,7 @@ module.exports = {
       db.prepare("INSERT INTO config (key, value) VALUES ('currentRound', 'qualification') ON CONFLICT(key) DO UPDATE SET value = 'qualification'").run();
 
       if (dummyAthletesList && dummyAthletesList.length > 0) {
-        const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id) VALUES (?, ?, ?, ?, NULL)');
+        const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, ?, ?, NULL, ?, ?)');
         const insertScore = db.prepare('INSERT INTO scores (athlete_id, judge_id, score) VALUES (?, ?, ?)');
         const insertTime = db.prepare('INSERT INTO run_times (athlete_id, judge_id, time_seconds) VALUES (?, ?, ?)');
         const judges = db.prepare('SELECT id FROM judges').all();
@@ -508,7 +524,7 @@ module.exports = {
         }
         
         dummyAthletesList.forEach(athlete => {
-          const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed, normalizeRound(athlete.round));
+          const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed, normalizeRound(athlete.round), athlete.country || '', athlete.image_url || '');
           const aId = info.lastInsertRowid;
           
           if (athlete.completed && athlete.scores && athlete.scores.length > 0) {
@@ -527,16 +543,16 @@ module.exports = {
 
   loadPreset: () => {
     const dummyAthletes = [
-      { name: 'Sarah Maier', order: 1, completed: 1, scores: [95, 92, 94, 96, 93, 95], timeSeconds: 32.45 },
-      { name: 'Johannes Brandl', order: 2, completed: 1, scores: [85, 90, 88, 92, 89, 87], timeSeconds: 48.12 },
-      { name: 'Maximilian Fuchs', order: 3, completed: 1, scores: [78, 82, 80, 85, 79, 81], timeSeconds: 14.87 },
-      { name: 'Elena Wagner', order: 4, completed: 1, scores: [88, 86, 89, 90, 87, 85], timeSeconds: 27.63 },
-      { name: 'Lukas Pichler', order: 5, completed: 1, scores: [72, 75, 74, 76, 73, 71], timeSeconds: 44.2 },
-      { name: 'Anna Steiner', order: 6, completed: 1, scores: [91, 89, 93, 92, 90, 94], timeSeconds: 36.08 },
-      { name: 'David Hofer', order: 7, completed: 0, scores: [] },
-      { name: 'Julia Gruber', order: 8, completed: 0, scores: [] },
-      { name: 'Felix Berger', order: 9, completed: 0, scores: [] },
-      { name: 'Lisa Moser', order: 10, completed: 0, scores: [] }
+      { name: 'Sarah Maier', country: 'Austria', order: 1, completed: 1, scores: [95, 92, 94, 96, 93, 95], timeSeconds: 32.45 },
+      { name: 'Johannes Brandl', country: 'Germany', order: 2, completed: 1, scores: [85, 90, 88, 92, 89, 87], timeSeconds: 48.12 },
+      { name: 'Maximilian Fuchs', country: 'Switzerland', order: 3, completed: 1, scores: [78, 82, 80, 85, 79, 81], timeSeconds: 14.87 },
+      { name: 'Elena Wagner', country: 'Austria', order: 4, completed: 1, scores: [88, 86, 89, 90, 87, 85], timeSeconds: 27.63 },
+      { name: 'Lukas Pichler', country: 'Italy', order: 5, completed: 1, scores: [72, 75, 74, 76, 73, 71], timeSeconds: 44.2 },
+      { name: 'Anna Steiner', country: 'Slovenia', order: 6, completed: 1, scores: [91, 89, 93, 92, 90, 94], timeSeconds: 36.08 },
+      { name: 'David Hofer', country: 'Austria', order: 7, completed: 0, scores: [] },
+      { name: 'Julia Gruber', country: 'Germany', order: 8, completed: 0, scores: [] },
+      { name: 'Felix Berger', country: 'Switzerland', order: 9, completed: 0, scores: [] },
+      { name: 'Lisa Moser', country: 'Italy', order: 10, completed: 0, scores: [] }
     ];
     module.exports.resetCompetition(dummyAthletes);
   },
@@ -561,8 +577,8 @@ module.exports = {
       const existingFinalists = db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all('finals');
       const existingBySource = new Map(existingFinalists.filter(finalist => finalist.source_athlete_id).map(finalist => [finalist.source_athlete_id, finalist]));
       const keepIds = new Set();
-      const insertFinalist = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id) VALUES (?, ?, 0, ?, ?)');
-      const updateFinalist = db.prepare('UPDATE athletes SET name = ?, order_index = ? WHERE id = ?');
+      const insertFinalist = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, 0, ?, ?, ?, ?)');
+      const updateFinalist = db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ?, image_url = ? WHERE id = ?');
       const deleteFinalist = db.prepare('DELETE FROM athletes WHERE id = ?');
       const deleteScores = db.prepare('DELETE FROM scores WHERE athlete_id = ?');
 
@@ -570,11 +586,11 @@ module.exports = {
         const finalsOrder = qualifiers.length - index;
         const existing = existingBySource.get(qualifier.id) || existingFinalists.find(finalist => !finalist.source_athlete_id && finalist.name === qualifier.name);
         if (existing) {
-          updateFinalist.run(qualifier.name, finalsOrder, existing.id);
+          updateFinalist.run(qualifier.name, finalsOrder, qualifier.country || '', qualifier.image_url || '', existing.id);
           db.prepare('UPDATE athletes SET source_athlete_id = ? WHERE id = ?').run(qualifier.id, existing.id);
           keepIds.add(existing.id);
         } else {
-          const info = insertFinalist.run(qualifier.name, finalsOrder, 'finals', qualifier.id);
+          const info = insertFinalist.run(qualifier.name, finalsOrder, 'finals', qualifier.id, qualifier.country || '', qualifier.image_url || '');
           keepIds.add(info.lastInsertRowid);
         }
       });
@@ -644,7 +660,7 @@ module.exports = {
           const uploadedTables = db.prepare("SELECT name FROM uploaded.sqlite_master WHERE type = 'table'").all().map(row => row.name);
 
           copyUploadedTable('judges', ['id', 'username', 'pin']);
-          copyUploadedTable('athletes', ['id', 'name', 'order_index', 'completed', 'round', 'source_athlete_id']);
+          copyUploadedTable('athletes', ['id', 'name', 'order_index', 'completed', 'round', 'source_athlete_id', 'country', 'image_url']);
           copyUploadedTable('scores', ['id', 'athlete_id', 'judge_id', 'score']);
           if (uploadedTables.includes('run_times')) {
             copyUploadedTable('run_times', ['id', 'athlete_id', 'judge_id', 'time_seconds']);

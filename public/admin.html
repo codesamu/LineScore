@@ -46,36 +46,36 @@
             <button id="tab-admin-controls" class="tab-btn active">Controls</button>
             <button id="tab-admin-database" class="tab-btn">Database</button>
         </div>
-        <main id="admin-controls-tab-content">
-            <section class="card mb-4">
-                <h3>Display Settings</h3>
-                <form id="app-name-form" class="flex-row">
-                    <input type="text" id="app-name-input" placeholder="App Name" maxlength="80" required class="flex-grow">
-                    <button type="submit" class="btn-primary">Save</button>
-                </form>
-                <form id="app-icon-form" class="icon-upload-form">
-                    <div class="icon-preview-wrap">
-                        <img id="app-icon-preview" src="/favicon.ico" alt="" class="icon-preview">
-                    </div>
-                    <div class="icon-upload-controls">
-                        <label for="app-icon-input">Page Icon</label>
-                        <input type="file" id="app-icon-input" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,.ico">
-                    </div>
-                    <button type="submit" class="btn-primary btn-small">Upload</button>
-                    <button type="button" id="reset-app-icon-btn" class="btn-secondary btn-small">Reset</button>
-                </form>
-                <div id="app-icon-status" class="text-sm hidden"></div>
-            </section>
-
-            <section class="card mb-4">
+        <main id="admin-controls-tab-content" class="admin-dashboard-grid">
+            <section class="card admin-panel add-athlete-panel">
                 <h3>Add Athlete</h3>
                 <form id="add-athlete-form" class="flex-row">
                     <input type="text" id="athlete-name-input" placeholder="Athlete Name" required class="flex-grow">
+                    <input type="text" id="athlete-country-input" placeholder="Country" class="flex-grow">
                     <button type="submit" class="btn-primary">Add</button>
                 </form>
             </section>
 
-            <section class="card mb-4">
+            <section class="card admin-panel athletes-panel">
+                <h3>Manage Athletes</h3>
+                <div id="admin-athletes-list" class="athletes-list">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
+            <section class="card admin-panel judges-panel">
+                <h3>Manage Judges</h3>
+                <form id="add-judge-form" class="flex-row mb-4">
+                    <input type="text" id="judge-username-input" placeholder="Judge Name" required class="flex-grow">
+                    <input type="text" id="judge-pin-input" placeholder="PIN" required style="width: 100px;">
+                    <button type="submit" class="btn-primary">Add</button>
+                </form>
+                <div id="admin-judges-list" class="athletes-list">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
+            <section class="card admin-panel round-panel">
                 <h3>Competition Round</h3>
                 <div class="form-group">
                     <label for="current-round-select">Current Round</label>
@@ -94,26 +94,7 @@
                 <p class="text-sm mt-2">Finals are built from the highest ranked completed athletes in qualification.</p>
             </section>
 
-            <section class="card mb-4">
-                <h3>Manage Athletes</h3>
-                <div id="admin-athletes-list" class="athletes-list">
-                    <!-- Populated via JS -->
-                </div>
-            </section>
-
-            <section class="card mb-4">
-                <h3>Manage Judges</h3>
-                <form id="add-judge-form" class="flex-row mb-4">
-                    <input type="text" id="judge-username-input" placeholder="Judge Name" required class="flex-grow">
-                    <input type="text" id="judge-pin-input" placeholder="PIN" required style="width: 100px;">
-                    <button type="submit" class="btn-primary">Add</button>
-                </form>
-                <div id="admin-judges-list" class="athletes-list">
-                    <!-- Populated via JS -->
-                </div>
-            </section>
-
-            <section class="card mb-4">
+            <section class="card admin-panel scoring-panel">
                 <h3>Scoring Formula</h3>
                 <p class="text-sm mb-2">Choose how judge scores are combined to calculate an athlete's total points.</p>
                 <div class="form-group" style="margin-bottom: 0;">
@@ -127,7 +108,18 @@
                 </div>
             </section>
 
-            <section class="card mb-4">
+            <section class="card admin-panel tv-panel">
+                <h3>TV Mode Settings</h3>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="tv-scroll-mode-select">Starting List Scroll Mode</label>
+                    <select id="tv-scroll-mode-select">
+                        <option value="continuous">Continuous Smooth Auto-Scroll</option>
+                        <option value="active">Center Next Up Athlete</option>
+                    </select>
+                </div>
+            </section>
+
+            <section class="card admin-panel time-panel">
                 <h3>Time Deduction</h3>
                 <p class="text-sm mb-2">Choose one judge to enter a time in seconds. If the time is outside the allowed range, the deduction is subtracted from the final score.</p>
                 <form id="time-deduction-form">
@@ -155,18 +147,27 @@
                 </form>
             </section>
 
-            <section class="card mb-4">
-                <h3>TV Mode Settings</h3>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="tv-scroll-mode-select">Starting List Scroll Mode</label>
-                    <select id="tv-scroll-mode-select">
-                        <option value="continuous">Continuous Smooth Auto-Scroll</option>
-                        <option value="active">Center Next Up Athlete</option>
-                    </select>
-                </div>
+            <section class="card admin-panel display-panel">
+                <h3>Display Settings</h3>
+                <form id="app-name-form" class="flex-row">
+                    <input type="text" id="app-name-input" placeholder="App Name" maxlength="80" required class="flex-grow">
+                    <button type="submit" class="btn-primary">Save</button>
+                </form>
+                <form id="app-icon-form" class="icon-upload-form">
+                    <div class="icon-preview-wrap">
+                        <img id="app-icon-preview" src="/favicon.ico" alt="" class="icon-preview">
+                    </div>
+                    <div class="icon-upload-controls">
+                        <label for="app-icon-input">Page Icon</label>
+                        <input type="file" id="app-icon-input" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,.ico">
+                    </div>
+                    <button type="submit" class="btn-primary btn-small">Upload</button>
+                    <button type="button" id="reset-app-icon-btn" class="btn-secondary btn-small">Reset</button>
+                </form>
+                <div id="app-icon-status" class="text-sm hidden"></div>
             </section>
 
-            <section class="card mb-4">
+            <section class="card admin-panel license-panel">
                 <h3>License Key Settings</h3>
                 <p class="text-sm mb-2">Enter your license key or password to remove the "Made by Samuel Fronthaler" branding footer from all pages.</p>
                 <form id="license-key-form" class="flex-row mb-2">
@@ -176,7 +177,7 @@
                 <div id="license-status-message" style="font-weight: 600; font-size: 0.9rem; padding: 0.5rem; border-radius: 12px;" class="hidden"></div>
             </section>
 
-            <section class="card danger-zone">
+            <section class="card admin-panel danger-zone actions-panel">
                 <h3>Competition Actions</h3>
                 <p class="text-sm mb-2">Use these actions to seed a set of 10 demo athletes or clear the database completely.</p>
                 <div class="flex-row" style="gap: 0.5rem; width: 100%;">
@@ -185,7 +186,7 @@
                 </div>
             </section>
 
-            <section class="card danger-zone mt-4">
+            <section class="card admin-panel danger-zone backup-panel">
                 <h3>Database Backup</h3>
                 <p class="text-sm mb-2">Download the full competition database, or upload a saved database to continue an earlier competition.</p>
                 <div class="flex-row" style="gap: 0.5rem; width: 100%;">
