@@ -1448,6 +1448,57 @@ function initAdmin() {
         }
     });
 
+    const downloadDatabaseBtn = document.getElementById('download-database-btn');
+    if (downloadDatabaseBtn) {
+        downloadDatabaseBtn.addEventListener('click', () => {
+            window.location.href = '/admin/database/download';
+        });
+    }
+
+    const uploadDatabaseBtn = document.getElementById('upload-database-btn');
+    const databaseUploadInput = document.getElementById('database-upload-input');
+    if (uploadDatabaseBtn && databaseUploadInput) {
+        uploadDatabaseBtn.addEventListener('click', () => {
+            databaseUploadInput.value = '';
+            databaseUploadInput.click();
+        });
+
+        databaseUploadInput.addEventListener('change', async () => {
+            const file = databaseUploadInput.files && databaseUploadInput.files[0];
+            if (!file) return;
+
+            if (!confirm('Uploading this database will replace the current athletes, judges, scores, times, and settings. Continue?')) {
+                databaseUploadInput.value = '';
+                return;
+            }
+
+            uploadDatabaseBtn.disabled = true;
+            try {
+                const res = await fetch('/admin/database/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream'
+                    },
+                    body: file
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || data.message || 'Database upload failed');
+                }
+                alert('Database uploaded.');
+                await loadDashboardData();
+                if (adminDatabaseContent && !adminDatabaseContent.classList.contains('hidden')) {
+                    await loadDatabaseView();
+                }
+            } catch(e) {
+                alert('Failed to upload database: ' + e.message);
+            } finally {
+                uploadDatabaseBtn.disabled = false;
+                databaseUploadInput.value = '';
+            }
+        });
+    }
+
     const refreshDatabaseBtn = document.getElementById('refresh-database-btn');
     if (refreshDatabaseBtn) {
         refreshDatabaseBtn.addEventListener('click', loadDatabaseView);

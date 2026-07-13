@@ -8,6 +8,7 @@ if (!fs.existsSync(dbDir)) {
 }
 const dbPath = path.join(dbDir, 'database.sqlite');
 const db = new Database(dbPath);
+const managedTables = ['judges', 'athletes', 'scores', 'run_times', 'config'];
 
 // Initialize tables if they don't exist
 db.exec(`
@@ -102,6 +103,53 @@ if (!athleteColumns.includes('source_athlete_id')) {
 }
 
 const normalizeRound = (round) => round === 'finals' ? 'finals' : 'qualification';
+
+const quoteSqlString = (value) => `'${String(value).replace(/'/g, "''")}'`;
+
+const getTableColumns = (database, tableName) => {
+  return database.prepare(`PRAGMA table_info(${tableName})`).all().map(col => col.name);
+};
+
+const tableExists = (database, tableName) => {
+  const row = database.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+  return row.count > 0;
+};
+
+const validateUploadedDatabase = (filePath) => {
+  const uploaded = new Database(filePath, { readonly: true });
+  try {
+    const integrity = uploaded.prepare('PRAGMA integrity_check').get();
+    if (!integrity || integrity.integrity_check !== 'ok') {
+      throw new Error('Uploaded database failed SQLite integrity check');
+    }
+
+    for (const tableName of ['judges', 'athletes', 'scores', 'config']) {
+      if (!tableExists(uploaded, tableName)) {
+        throw new Error(`Uploaded database is missing required table: ${tableName}`);
+      }
+    }
+  } finally {
+    uploaded.close();
+  }
+};
+
+const copyUploadedTable = (tableName, columns) => {
+  const currentColumns = getTableColumns(db, tableName);
+  const sourceColumns = db.prepare(`PRAGMA uploaded.table_info(${tableName})`).all().map(col => col.name);
+  const sharedColumns = columns.filter(column => currentColumns.includes(column) && sourceColumns.includes(column));
+
+  db.prepare(`DELETE FROM ${tableName}`).run();
+  if (sharedColumns.length === 0 || sourceColumns.length === 0) return;
+
+  const selectColumns = sharedColumns.map(column => {
+    if (column === 'round') return `COALESCE(${column}, 'qualification')`;
+    return column;
+  }).join(', ');
+  db.prepare(`
+    INSERT INTO ${tableName} (${sharedColumns.join(', ')})
+    SELECT ${selectColumns} FROM uploaded.${tableName}
+  `).run();
+};
 
 // Migrate data from database.json if sqlite is empty and json exists
 const jsonPath = path.join(dbDir, 'database.json');
@@ -574,5 +622,63 @@ module.exports = {
         updateStmt.run(key, value);
       }
     })();
+  },
+
+  getDatabasePath: () => dbPath,
+
+  restoreDatabaseFromBuffer: (buffer) => {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      throw new Error('No database file uploaded');
+    }
+
+    const uploadPath = path.join(dbDir, `database-upload-${Date.now()}.sqlite`);
+    fs.writeFileSync(uploadPath, buffer);
+
+    try {
+      validateUploadedDatabase(uploadPath);
+      const escapedPath = quoteSqlString(uploadPath);
+
+      db.exec(`ATTACH DATABASE ${escapedPath} AS uploaded`);
+      try {
+        db.transaction(() => {
+          const uploadedTables = db.prepare("SELECT name FROM uploaded.sqlite_master WHERE type = 'table'").all().map(row => row.name);
+
+          copyUploadedTable('judges', ['id', 'username', 'pin']);
+          copyUploadedTable('athletes', ['id', 'name', 'order_index', 'completed', 'round', 'source_athlete_id']);
+          copyUploadedTable('scores', ['id', 'athlete_id', 'judge_id', 'score']);
+          if (uploadedTables.includes('run_times')) {
+            copyUploadedTable('run_times', ['id', 'athlete_id', 'judge_id', 'time_seconds']);
+          } else {
+            db.prepare('DELETE FROM run_times').run();
+          }
+          copyUploadedTable('config', ['key', 'value']);
+          db.prepare(`DELETE FROM sqlite_sequence WHERE name IN (${managedTables.map(quoteSqlString).join(', ')})`).run();
+        })();
+      } finally {
+        db.exec('DETACH DATABASE uploaded');
+      }
+
+      for (const [key, value] of [
+        ['tvScrollMode', 'continuous'],
+        ['scoringFormula', 'sum'],
+        ['appName', 'LineScore'],
+        ['appIconUrl', '/favicon.ico'],
+        ['currentRound', 'qualification'],
+        ['finalistsCount', '5'],
+        ['timeJudgeId', ''],
+        ['timeMinSeconds', '15'],
+        ['timeMaxSeconds', '45'],
+        ['timeDeductionPoints', '0']
+      ]) {
+        const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
+        if (exists.count === 0) {
+          db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run(key, value);
+        }
+      }
+    } finally {
+      if (fs.existsSync(uploadPath)) {
+        fs.unlinkSync(uploadPath);
+      }
+    }
   }
 };

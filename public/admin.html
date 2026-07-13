@@ -184,6 +184,16 @@
                     <button id="reset-competition-btn" class="btn-danger flex-grow">Reset Competition</button>
                 </div>
             </section>
+
+            <section class="card danger-zone mt-4">
+                <h3>Database Backup</h3>
+                <p class="text-sm mb-2">Download the full competition database, or upload a saved database to continue an earlier competition.</p>
+                <div class="flex-row" style="gap: 0.5rem; width: 100%;">
+                    <button id="download-database-btn" class="btn-secondary flex-grow">Download Database</button>
+                    <button id="upload-database-btn" class="btn-primary flex-grow">Upload Database</button>
+                    <input type="file" id="database-upload-input" class="hidden" accept=".sqlite,.db,application/octet-stream">
+                </div>
+            </section>
         </main>
         <main id="admin-database-tab-content" class="hidden">
             <section class="card mb-4 database-card">

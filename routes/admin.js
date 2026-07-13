@@ -108,6 +108,20 @@ router.post('/load-preset', asyncHandler((req, res) => {
   res.json({ success: true });
 }));
 
+router.get('/database/download', asyncHandler((req, res) => {
+  const filename = `parcour-database-${new Date().toISOString().slice(0, 10)}.sqlite`;
+  res.download(db.getDatabasePath(), filename);
+}));
+
+router.post('/database/upload', express.raw({
+  type: 'application/octet-stream',
+  limit: '100mb'
+}), asyncHandler((req, res) => {
+  db.restoreDatabaseFromBuffer(req.body);
+  broadcastUpdate(req);
+  res.json({ success: true });
+}));
+
 // Admin Upload Page Icon
 router.post('/icon', asyncHandler((req, res) => {
     const { imageData } = req.body;
