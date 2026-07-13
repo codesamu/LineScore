@@ -75,8 +75,8 @@ router.get('/current-athlete', asyncHandler((req, res) => {
 
 // Submit/Update Score
 const handleScoreSubmit = asyncHandler((req, res) => {
-  const { athleteId, judgeId, score } = req.body;
-  db.submitScore(athleteId, judgeId, score);
+  const { athleteId, judgeId, score, timeSeconds } = req.body;
+  db.submitScore(athleteId, judgeId, score, timeSeconds);
   broadcastUpdate(req);
   res.json({ success: true });
 });

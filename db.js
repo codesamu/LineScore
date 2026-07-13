@@ -31,6 +31,13 @@ db.exec(`
     score INTEGER,
     UNIQUE(athlete_id, judge_id)
   );
+  CREATE TABLE IF NOT EXISTS run_times (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    athlete_id INTEGER,
+    judge_id INTEGER,
+    time_seconds REAL,
+    UNIQUE(athlete_id, judge_id)
+  );
   CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -44,6 +51,10 @@ if (configCount.count === 0) {
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('scoringFormula', 'sum');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appName', 'LineScore');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appIconUrl', '/favicon.ico');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeJudgeId', '');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeMinSeconds', '15');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeMaxSeconds', '45');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeDeductionPoints', '0');
 }
 // Ensure scoringFormula config exists (migration for existing databases)
 const hasScoringFormula = db.prepare("SELECT COUNT(*) as count FROM config WHERE key = 'scoringFormula'").get();
@@ -68,6 +79,17 @@ if (hasCurrentRound.count === 0) {
 const hasFinalistsCount = db.prepare("SELECT COUNT(*) as count FROM config WHERE key = 'finalistsCount'").get();
 if (hasFinalistsCount.count === 0) {
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('finalistsCount', '5');
+}
+for (const [key, value] of [
+  ['timeJudgeId', ''],
+  ['timeMinSeconds', '15'],
+  ['timeMaxSeconds', '45'],
+  ['timeDeductionPoints', '0']
+]) {
+  const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
+  if (exists.count === 0) {
+    db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run(key, value);
+  }
 }
 
 const athleteColumns = db.prepare('PRAGMA table_info(athletes)').all().map(col => col.name);
@@ -134,6 +156,8 @@ module.exports = {
     const judgeId = parseInt(id, 10);
     db.prepare('DELETE FROM judges WHERE id = ?').run(judgeId);
     db.prepare('DELETE FROM scores WHERE judge_id = ?').run(judgeId);
+    db.prepare('DELETE FROM run_times WHERE judge_id = ?').run(judgeId);
+    db.prepare("UPDATE config SET value = '' WHERE key = 'timeJudgeId' AND value = ?").run(String(judgeId));
   },
 
   updateJudge: (id, username, pin) => {
@@ -184,6 +208,7 @@ module.exports = {
     db.transaction(() => {
       db.prepare('DELETE FROM athletes WHERE id = ?').run(athleteId);
       db.prepare('DELETE FROM scores WHERE athlete_id = ?').run(athleteId);
+      db.prepare('DELETE FROM run_times WHERE athlete_id = ?').run(athleteId);
       
       const athletes = db.prepare('SELECT id FROM athletes WHERE round = ? ORDER BY order_index ASC').all(athleteRound);
       const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
@@ -212,13 +237,21 @@ module.exports = {
     })();
   },
 
-  submitScore: (athleteId, judgeId, score) => {
+  submitScore: (athleteId, judgeId, score, timeSeconds = null) => {
     const aId = parseInt(athleteId, 10);
     const jId = parseInt(judgeId, 10);
-    const sVal = parseInt(score, 10);
+    const sVal = Number(score);
+    const config = module.exports.getConfig();
+    const timeJudgeId = parseInt(config.timeJudgeId, 10);
+    const isTimeJudge = Number.isInteger(timeJudgeId) && timeJudgeId === jId;
+    const hasTimeSeconds = timeSeconds !== null && timeSeconds !== undefined && timeSeconds !== '';
+    const tVal = hasTimeSeconds ? Number(timeSeconds) : null;
 
-    if (isNaN(aId) || isNaN(jId) || isNaN(sVal)) {
+    if (isNaN(aId) || isNaN(jId) || !Number.isFinite(sVal)) {
       throw new Error(`Invalid score submission: athleteId=${athleteId}, judgeId=${judgeId}, score=${score}`);
+    }
+    if (isTimeJudge && (!hasTimeSeconds || !Number.isFinite(tVal) || tVal < 0)) {
+      throw new Error('The time judge must submit a valid time in seconds');
     }
 
     db.transaction(() => {
@@ -228,6 +261,15 @@ module.exports = {
         ON CONFLICT(athlete_id, judge_id) 
         DO UPDATE SET score = excluded.score
       `).run(aId, jId, sVal);
+
+      if (isTimeJudge) {
+        db.prepare(`
+          INSERT INTO run_times (athlete_id, judge_id, time_seconds)
+          VALUES (?, ?, ?)
+          ON CONFLICT(athlete_id, judge_id)
+          DO UPDATE SET time_seconds = excluded.time_seconds
+        `).run(aId, jId, tVal);
+      }
 
       // Check completion
       const athleteScoresCount = db.prepare('SELECT COUNT(*) as count FROM scores WHERE athlete_id = ?').get(aId).count;
@@ -240,7 +282,9 @@ module.exports = {
   },
 
   getScore: (athleteId, judgeId) => {
-    return db.prepare('SELECT * FROM scores WHERE athlete_id = ? AND judge_id = ?').get(parseInt(athleteId, 10), parseInt(judgeId, 10));
+    const score = db.prepare('SELECT * FROM scores WHERE athlete_id = ? AND judge_id = ?').get(parseInt(athleteId, 10), parseInt(judgeId, 10));
+    const time = db.prepare('SELECT time_seconds FROM run_times WHERE athlete_id = ? AND judge_id = ?').get(parseInt(athleteId, 10), parseInt(judgeId, 10));
+    return score ? { ...score, time_seconds: time ? time.time_seconds : null } : null;
   },
 
   getScoresForAthlete: (athleteId) => {
@@ -267,8 +311,23 @@ module.exports = {
       ${activeRound ? 'WHERE athletes.round = ?' : ''}
       ORDER BY athletes.order_index ASC, athletes.id ASC, judges.id ASC
     `).all(...params);
+    const times = db.prepare(`
+      SELECT
+        run_times.id,
+        run_times.athlete_id,
+        athletes.name AS athlete_name,
+        run_times.judge_id,
+        judges.username AS judge_name,
+        run_times.time_seconds
+      FROM run_times
+      LEFT JOIN athletes ON athletes.id = run_times.athlete_id
+      LEFT JOIN judges ON judges.id = run_times.judge_id
+      ${activeRound ? 'WHERE athletes.round = ?' : ''}
+      ORDER BY athletes.order_index ASC, athletes.id ASC, judges.id ASC
+    `).all(...params);
 
     const scoreLookup = new Map(scores.map(score => [`${score.athlete_id}:${score.judge_id}`, score.score]));
+    const timeLookup = new Map(times.map(time => [`${time.athlete_id}:${time.judge_id}`, time.time_seconds]));
     const matrix = athletes.map(athlete => ({
       athlete_id: athlete.id,
       athlete_name: athlete.name,
@@ -277,24 +336,34 @@ module.exports = {
       scores: judges.map(judge => ({
         judge_id: judge.id,
         judge_name: judge.username,
-        score: scoreLookup.has(`${athlete.id}:${judge.id}`) ? scoreLookup.get(`${athlete.id}:${judge.id}`) : null
+        score: scoreLookup.has(`${athlete.id}:${judge.id}`) ? scoreLookup.get(`${athlete.id}:${judge.id}`) : null,
+        time_seconds: timeLookup.has(`${athlete.id}:${judge.id}`) ? timeLookup.get(`${athlete.id}:${judge.id}`) : null
       }))
     }));
 
-    return { athletes, judges, scores, matrix };
+    return { athletes, judges, scores, times, matrix };
   },
 
   getLeaderboard: (round) => {
     const config = module.exports.getConfig();
     const formula = config.scoringFormula || 'sum';
     const activeRound = normalizeRound(round || config.currentRound);
+    const timeJudgeId = parseInt(config.timeJudgeId, 10);
+    const hasTimeJudge = Number.isInteger(timeJudgeId) && timeJudgeId > 0;
+    const timeMinSeconds = Number(config.timeMinSeconds ?? config.timeThresholdSeconds ?? 15);
+    const timeMaxSeconds = Number(config.timeMaxSeconds ?? 45);
+    const timeDeductionPoints = Number(config.timeDeductionPoints || 0);
 
     // Get raw data: all athletes with their individual scores
     const athletes = db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all(activeRound);
     const allScores = db.prepare('SELECT * FROM scores').all();
+    const allTimes = db.prepare('SELECT * FROM run_times').all();
 
     const result = athletes.map(athlete => {
-      const scores = allScores.filter(s => s.athlete_id === athlete.id).map(s => s.score);
+      const athleteScores = allScores.filter(s => s.athlete_id === athlete.id);
+      const timeEntry = hasTimeJudge ? allTimes.find(t => t.athlete_id === athlete.id && t.judge_id === timeJudgeId) : null;
+      const timeSeconds = timeEntry ? Number(timeEntry.time_seconds) : null;
+      const scores = athleteScores.map(s => Number(s.score));
       let total_score = 0;
 
       if (scores.length > 0) {
@@ -332,6 +401,20 @@ module.exports = {
         }
       }
 
+      const timeDeduction = (
+        timeEntry &&
+        Number.isFinite(timeSeconds) &&
+        Number.isFinite(timeMinSeconds) &&
+        Number.isFinite(timeMaxSeconds) &&
+        Number.isFinite(timeDeductionPoints) &&
+        timeMinSeconds >= 0 &&
+        timeMaxSeconds >= timeMinSeconds &&
+        timeDeductionPoints > 0 &&
+        (timeSeconds < timeMinSeconds || timeSeconds > timeMaxSeconds)
+      ) ? timeDeductionPoints : 0;
+
+      total_score -= timeDeduction;
+
       return {
         id: athlete.id,
         name: athlete.name,
@@ -339,7 +422,9 @@ module.exports = {
         completed: athlete.completed,
         round: athlete.round,
         total_score,
-        score_count: scores.length
+        score_count: scores.length,
+        time_seconds: timeEntry ? timeSeconds : null,
+        time_deduction: timeDeduction
       };
     });
 
@@ -352,13 +437,27 @@ module.exports = {
     db.transaction(() => {
       db.prepare('DELETE FROM athletes').run();
       db.prepare('DELETE FROM scores').run();
-      db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('athletes', 'scores')").run();
+      db.prepare('DELETE FROM run_times').run();
+      db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('athletes', 'scores', 'run_times')").run();
       db.prepare("INSERT INTO config (key, value) VALUES ('currentRound', 'qualification') ON CONFLICT(key) DO UPDATE SET value = 'qualification'").run();
 
       if (dummyAthletesList && dummyAthletesList.length > 0) {
         const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id) VALUES (?, ?, ?, ?, NULL)');
         const insertScore = db.prepare('INSERT INTO scores (athlete_id, judge_id, score) VALUES (?, ?, ?)');
+        const insertTime = db.prepare('INSERT INTO run_times (athlete_id, judge_id, time_seconds) VALUES (?, ?, ?)');
         const judges = db.prepare('SELECT id FROM judges').all();
+        const config = module.exports.getConfig();
+        const configuredTimeJudgeId = parseInt(config.timeJudgeId, 10);
+        const hasConfiguredTimeJudge = judges.some(judge => judge.id === configuredTimeJudgeId);
+        const demoTimeJudgeId = hasConfiguredTimeJudge ? configuredTimeJudgeId : (judges[0] ? judges[0].id : null);
+
+        if (!hasConfiguredTimeJudge && demoTimeJudgeId) {
+          db.prepare(`
+            INSERT INTO config (key, value)
+            VALUES ('timeJudgeId', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+          `).run(String(demoTimeJudgeId));
+        }
         
         dummyAthletesList.forEach(athlete => {
           const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed, normalizeRound(athlete.round));
@@ -370,6 +469,9 @@ module.exports = {
               insertScore.run(aId, judge.id, parseInt(score, 10));
             });
           }
+          if (athlete.completed && demoTimeJudgeId && Number.isFinite(Number(athlete.timeSeconds))) {
+            insertTime.run(aId, demoTimeJudgeId, Number(athlete.timeSeconds));
+          }
         });
       }
     })();
@@ -377,12 +479,12 @@ module.exports = {
 
   loadPreset: () => {
     const dummyAthletes = [
-      { name: 'Sarah Maier', order: 1, completed: 1, scores: [95, 92, 94, 96, 93, 95] },
-      { name: 'Johannes Brandl', order: 2, completed: 1, scores: [85, 90, 88, 92, 89, 87] },
-      { name: 'Maximilian Fuchs', order: 3, completed: 1, scores: [78, 82, 80, 85, 79, 81] },
-      { name: 'Elena Wagner', order: 4, completed: 1, scores: [88, 86, 89, 90, 87, 85] },
-      { name: 'Lukas Pichler', order: 5, completed: 1, scores: [72, 75, 74, 76, 73, 71] },
-      { name: 'Anna Steiner', order: 6, completed: 1, scores: [91, 89, 93, 92, 90, 94] },
+      { name: 'Sarah Maier', order: 1, completed: 1, scores: [95, 92, 94, 96, 93, 95], timeSeconds: 32.45 },
+      { name: 'Johannes Brandl', order: 2, completed: 1, scores: [85, 90, 88, 92, 89, 87], timeSeconds: 48.12 },
+      { name: 'Maximilian Fuchs', order: 3, completed: 1, scores: [78, 82, 80, 85, 79, 81], timeSeconds: 14.87 },
+      { name: 'Elena Wagner', order: 4, completed: 1, scores: [88, 86, 89, 90, 87, 85], timeSeconds: 27.63 },
+      { name: 'Lukas Pichler', order: 5, completed: 1, scores: [72, 75, 74, 76, 73, 71], timeSeconds: 44.2 },
+      { name: 'Anna Steiner', order: 6, completed: 1, scores: [91, 89, 93, 92, 90, 94], timeSeconds: 36.08 },
       { name: 'David Hofer', order: 7, completed: 0, scores: [] },
       { name: 'Julia Gruber', order: 8, completed: 0, scores: [] },
       { name: 'Felix Berger', order: 9, completed: 0, scores: [] },
@@ -432,6 +534,7 @@ module.exports = {
       existingFinalists.forEach(finalist => {
         if (!keepIds.has(finalist.id)) {
           deleteScores.run(finalist.id);
+          db.prepare('DELETE FROM run_times WHERE athlete_id = ?').run(finalist.id);
           deleteFinalist.run(finalist.id);
         }
       });
@@ -456,7 +559,11 @@ module.exports = {
       appName: 'LineScore',
       appIconUrl: '/favicon.ico',
       currentRound: 'qualification',
-      finalistsCount: '5'
+      finalistsCount: '5',
+      timeJudgeId: '',
+      timeMinSeconds: '15',
+      timeMaxSeconds: '45',
+      timeDeductionPoints: '0'
     };
   },
 

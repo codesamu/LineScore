@@ -169,6 +169,43 @@ router.put('/config', asyncHandler((req, res) => {
         }
         update.scoringFormula = req.body.scoringFormula;
     }
+    if (req.body.hasOwnProperty('timeJudgeId')) {
+        const rawJudgeId = String(req.body.timeJudgeId || '').trim();
+        if (rawJudgeId === '') {
+            update.timeJudgeId = '';
+        } else {
+            const timeJudgeId = parseInt(rawJudgeId, 10);
+            if (!Number.isInteger(timeJudgeId) || timeJudgeId < 1 || !db.getJudge(timeJudgeId)) {
+                return res.status(400).json({ error: 'Invalid time judge' });
+            }
+            update.timeJudgeId = String(timeJudgeId);
+        }
+    }
+    const hasTimeMin = req.body.hasOwnProperty('timeMinSeconds');
+    const hasTimeMax = req.body.hasOwnProperty('timeMaxSeconds');
+    if (hasTimeMin || hasTimeMax) {
+        const existingConfig = db.getConfig();
+        const timeMinSeconds = Number(hasTimeMin ? req.body.timeMinSeconds : existingConfig.timeMinSeconds);
+        const timeMaxSeconds = Number(hasTimeMax ? req.body.timeMaxSeconds : existingConfig.timeMaxSeconds);
+        if (!Number.isFinite(timeMinSeconds) || timeMinSeconds < 0) {
+            return res.status(400).json({ error: 'Minimum time must be 0 or greater' });
+        }
+        if (!Number.isFinite(timeMaxSeconds) || timeMaxSeconds < 0) {
+            return res.status(400).json({ error: 'Maximum time must be 0 or greater' });
+        }
+        if (timeMaxSeconds < timeMinSeconds) {
+            return res.status(400).json({ error: 'Maximum time must be greater than or equal to minimum time' });
+        }
+        update.timeMinSeconds = String(timeMinSeconds);
+        update.timeMaxSeconds = String(timeMaxSeconds);
+    }
+    if (req.body.hasOwnProperty('timeDeductionPoints')) {
+        const timeDeductionPoints = Number(req.body.timeDeductionPoints);
+        if (!Number.isFinite(timeDeductionPoints) || timeDeductionPoints < 0) {
+            return res.status(400).json({ error: 'Deduction points must be 0 or greater' });
+        }
+        update.timeDeductionPoints = String(timeDeductionPoints);
+    }
     if (req.body.currentRound) {
         const validRounds = ['qualification', 'finals'];
         if (!validRounds.includes(req.body.currentRound)) {

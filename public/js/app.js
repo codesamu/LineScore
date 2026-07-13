@@ -501,7 +501,7 @@ function initLeaderboard() {
             item.className = 'leaderboard-item';
             item.innerHTML = `
                 <div class="rank">#${index + 1}</div>
-                <div class="name">${athlete.name}</div>
+                <div class="name">${athlete.name}${renderTimeLabel(athlete)}</div>
                 <div class="score">${athlete.total_score} pts</div>
             `;
             leaderboardListEl.appendChild(item);
@@ -529,11 +529,17 @@ function initLeaderboard() {
 
             item.innerHTML = `
                 <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 5.5rem;">N° ${athlete.order_index}</div>
-                <div class="name">${athlete.name} ${statusLabel}</div>
+                <div class="name">${athlete.name}${renderTimeLabel(athlete)} ${statusLabel}</div>
                 <div class="score" style="font-size: 1.1rem; opacity: 0.7;">${athlete.completed ? athlete.total_score + ' pts' : '-'}</div>
             `;
             startlistListEl.appendChild(item);
         });
+    }
+
+    function renderTimeLabel(athlete) {
+        const time = Number(athlete.time_seconds);
+        if (!Number.isFinite(time)) return '';
+        return `<span class="leaderboard-time">${time.toFixed(2)}s</span>`;
     }
 
     loadData();
@@ -545,6 +551,7 @@ function initJudge() {
     const loginView = document.getElementById('login-view');
     const dashboardView = document.getElementById('dashboard-view');
     const scoreInputEl = document.getElementById('score-input');
+    const timeInputEl = document.getElementById('time-input');
     
     if (scoreInputEl) {
         scoreInputEl.addEventListener('input', () => {
@@ -554,19 +561,54 @@ function initJudge() {
             }
         });
     }
+    if (timeInputEl) {
+        timeInputEl.addEventListener('input', () => {
+            const activeAthleteId = timeInputEl.dataset.athleteId;
+            if (activeAthleteId && judge) {
+                localStorage.setItem(`draft_time_${judge.id}_${activeAthleteId}`, timeInputEl.value);
+            }
+        });
+    }
     
     // Check session
     const judgeStr = sessionStorage.getItem('judge');
     let judge = judgeStr ? JSON.parse(judgeStr) : null;
     let numJudges = 6;
+    let judgeConfig = {};
+
+    function isTimeJudge() {
+        return judge && String(judgeConfig.timeJudgeId || '') === String(judge.id);
+    }
+
+    function configureScoreInput() {
+        const labelEl = document.querySelector('label[for="score-input"]');
+        const editLabelEl = document.querySelector('label[for="edit-score-input"]');
+        const scoreInput = document.getElementById('score-input');
+        const editScoreInput = document.getElementById('edit-score-input');
+        const timeContainer = document.querySelector('.time-input-container');
+        const editTimeGroup = document.querySelector('.edit-time-group');
+
+        if (labelEl) labelEl.textContent = 'Your Score';
+        if (editLabelEl) editLabelEl.textContent = 'New Score';
+        [scoreInput, editScoreInput].forEach(input => {
+            if (!input) return;
+            input.min = '0';
+            input.step = '1';
+            input.max = '100';
+        });
+        if (timeContainer) timeContainer.classList.toggle('hidden', !isTimeJudge());
+        if (editTimeGroup) editTimeGroup.classList.toggle('hidden', !isTimeJudge());
+    }
 
     async function loadConfig() {
         try {
             const cfg = await fetchAPI('/config');
+            judgeConfig = cfg;
             numJudges = cfg.numJudges;
             applyBrandingVisibility(cfg.isLicensed);
             applyAppName(cfg.appName);
             applyAppIcon(cfg.appIconUrl);
+            configureScoreInput();
             
             if (!cfg.isLicensed) {
                 showLicenseLockOverlay();
@@ -625,6 +667,7 @@ function initJudge() {
         loginView.classList.add('hidden');
         dashboardView.classList.remove('hidden');
         document.getElementById('judge-name-display').textContent = judge.username;
+        configureScoreInput();
         loadDashboardData();
     }
 
@@ -651,6 +694,7 @@ function initJudge() {
         const statusBar = document.getElementById('status-bar');
         const scoreStatus = document.getElementById('score-status');
         const scoreInputEl = document.getElementById('score-input');
+        const timeInputEl = document.getElementById('time-input');
 
         if (!athlete) {
             nameEl.textContent = 'No active athlete at the moment.';
@@ -661,6 +705,9 @@ function initJudge() {
             if (scoreInputEl) {
                 delete scoreInputEl.dataset.athleteId;
             }
+            if (timeInputEl) {
+                delete timeInputEl.dataset.athleteId;
+            }
             return;
         }
 
@@ -670,6 +717,10 @@ function initJudge() {
         if (scoreInputEl) {
             scoreInputEl.dataset.athleteId = athlete.id;
         }
+        if (timeInputEl) {
+            timeInputEl.dataset.athleteId = athlete.id;
+        }
+        configureScoreInput();
 
         const submittedCount = athlete.submittedJudgeIds ? athlete.submittedJudgeIds.length : 0;
         const hasSubmitted = athlete.submittedJudgeIds && athlete.submittedJudgeIds.includes(judge.id);
@@ -677,9 +728,10 @@ function initJudge() {
         statusBar.innerHTML = `Scores submitted: ${submittedCount} / ${numJudges}`;
 
         const draftScore = localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`);
+        const draftTime = localStorage.getItem(`draft_time_${judge.id}_${athlete.id}`);
 
         if (hasSubmitted) {
-            submitBtn.textContent = 'Update Score';
+            submitBtn.textContent = isTimeJudge() ? 'Update Score + Time' : 'Update Score';
             submitBtn.classList.remove('btn-primary');
             submitBtn.classList.add('btn-secondary');
             submitBtn.disabled = false;
@@ -695,15 +747,21 @@ function initJudge() {
                         if (localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`) === null) {
                             if (scoreInputEl) scoreInputEl.value = myScore.score;
                         }
+                        if (isTimeJudge() && localStorage.getItem(`draft_time_${judge.id}_${athlete.id}`) === null) {
+                            if (timeInputEl) timeInputEl.value = myScore.time_seconds ?? '';
+                        }
                     }
                 } catch(e) {}
             }
+            if (isTimeJudge() && draftTime !== null && timeInputEl) {
+                timeInputEl.value = draftTime;
+            }
             
-            scoreStatus.textContent = 'You have already submitted a score.';
+            scoreStatus.textContent = isTimeJudge() ? 'You have already submitted a score and time.' : 'You have already submitted a score.';
             scoreStatus.classList.remove('hidden');
             scoreStatus.className = 'status-text success';
         } else {
-            submitBtn.textContent = 'Submit Score';
+            submitBtn.textContent = isTimeJudge() ? 'Submit Score + Time' : 'Submit Score';
             submitBtn.classList.add('btn-primary');
             submitBtn.classList.remove('btn-secondary');
             submitBtn.disabled = false;
@@ -713,23 +771,40 @@ function initJudge() {
             } else {
                 if (scoreInputEl) scoreInputEl.value = '';
             }
+            if (isTimeJudge() && timeInputEl) {
+                timeInputEl.value = draftTime !== null ? draftTime : '';
+            }
             scoreStatus.classList.add('hidden');
         }
 
         submitBtn.onclick = async () => {
             if (!scoreInputEl) return;
-            const score = parseInt(scoreInputEl.value, 10);
-            if (isNaN(score)) return alert('Please enter a valid score');
+            const rawValue = scoreInputEl.value.trim();
+            const score = Number(rawValue);
+            if (rawValue === '') return alert('Please enter a valid score');
+            if (!Number.isFinite(score)) return alert('Please enter a valid score');
+
+            let timeSeconds = null;
+            if (isTimeJudge()) {
+                const rawTime = timeInputEl ? timeInputEl.value.trim() : '';
+                timeSeconds = Number(rawTime);
+                if (rawTime === '' || !Number.isFinite(timeSeconds) || timeSeconds < 0) {
+                    return alert('Please enter a valid time in seconds');
+                }
+            }
 
             submitBtn.disabled = true;
             try {
                 await fetchAPI('/submit-score', 'POST', {
                     athleteId: athlete.id,
                     judgeId: judge.id,
-                    score
+                    score,
+                    timeSeconds
                 });
                 localStorage.removeItem(`draft_score_${judge.id}_${athlete.id}`);
+                localStorage.removeItem(`draft_time_${judge.id}_${athlete.id}`);
                 scoreInputEl.value = '';
+                if (timeInputEl) timeInputEl.value = '';
                 // The socket update will trigger a reload
             } catch(e) {
                 alert(e.message);
@@ -758,7 +833,7 @@ function initJudge() {
                     <span class="font-bold">${athlete.name}</span>
                     <span class="status-badge ${athlete.completed ? 'completed' : 'pending'}">${athlete.completed ? 'Completed' : 'Pending'}</span>
                 </div>
-                <button class="btn-secondary btn-small edit-btn" data-id="${athlete.id}" data-name="${athlete.name}">Edit Score</button>
+                <button class="btn-secondary btn-small edit-btn" data-id="${athlete.id}" data-name="${athlete.name}">${isTimeJudge() ? 'Edit Score + Time' : 'Edit Score'}</button>
             `;
             listEl.appendChild(item);
         }
@@ -776,11 +851,18 @@ function initJudge() {
         document.getElementById('edit-athlete-id').value = athleteId;
         document.getElementById('edit-athlete-name').textContent = athleteName;
         document.getElementById('edit-score-input').value = '';
+        document.getElementById('edit-time-input').value = '';
+        document.querySelector('#edit-modal h3').textContent = isTimeJudge() ? 'Edit Score + Time' : 'Edit Score';
+        document.getElementById('save-edit-btn').textContent = isTimeJudge() ? 'Save Score + Time' : 'Save Score';
+        configureScoreInput();
         
         try {
             const myScore = await fetchAPI(`/scores/${athleteId}/${judge.id}`);
             if (myScore.score !== null) {
                 document.getElementById('edit-score-input').value = myScore.score;
+            }
+            if (isTimeJudge() && myScore.time_seconds !== null && myScore.time_seconds !== undefined) {
+                document.getElementById('edit-time-input').value = myScore.time_seconds;
             }
         } catch(e) {}
 
@@ -793,14 +875,26 @@ function initJudge() {
 
     document.getElementById('save-edit-btn').addEventListener('click', async () => {
         const athleteId = document.getElementById('edit-athlete-id').value;
-        const score = parseInt(document.getElementById('edit-score-input').value, 10);
-        if (isNaN(score)) return alert('Please enter a valid score');
+        const rawValue = document.getElementById('edit-score-input').value.trim();
+        const score = Number(rawValue);
+        if (rawValue === '') return alert('Please enter a valid score');
+        if (!Number.isFinite(score)) return alert('Please enter a valid score');
+
+        let timeSeconds = null;
+        if (isTimeJudge()) {
+            const rawTime = document.getElementById('edit-time-input').value.trim();
+            timeSeconds = Number(rawTime);
+            if (rawTime === '' || !Number.isFinite(timeSeconds) || timeSeconds < 0) {
+                return alert('Please enter a valid time in seconds');
+            }
+        }
 
         try {
             await fetchAPI('/update-score', 'PUT', {
                 athleteId,
                 judgeId: judge.id,
-                score
+                score,
+                timeSeconds
             });
             document.getElementById('edit-modal').classList.add('hidden');
             // Socket will reload data
@@ -820,6 +914,8 @@ function initAdmin() {
     const adminDatabaseTab = document.getElementById('tab-admin-database');
     const adminControlsContent = document.getElementById('admin-controls-tab-content');
     const adminDatabaseContent = document.getElementById('admin-database-tab-content');
+    let adminConfig = {};
+    let adminJudges = [];
 
     checkBranding();
 
@@ -860,9 +956,9 @@ function initAdmin() {
     }
 
     async function loadDashboardData() {
+        await loadJudges();
         await Promise.all([
             loadAthletes(),
-            loadJudges(),
             loadConfigSettings()
         ]);
     }
@@ -930,11 +1026,17 @@ function initAdmin() {
                 const judges = roundData.judges || allJudges;
                 const athletes = roundData.athletes || [];
                 const scores = roundData.scores || [];
+                const times = roundData.times || [];
                 const matrix = roundData.matrix || [];
 
                 const matrixHeader = judges.map(judge => `<th>${escapeHTML(judge.username)}<span class="db-table-meta">#${judge.id}</span></th>`).join('');
                 const matrixRows = matrix.map(row => {
-                    const scoreCells = row.scores.map(score => `<td>${score.score === null ? '<span class="db-empty">-</span>' : escapeHTML(score.score)}</td>`).join('');
+                    const scoreCells = row.scores.map(score => `
+                        <td>
+                            ${score.score === null ? '<span class="db-empty">-</span>' : escapeHTML(score.score)}
+                            ${score.time_seconds === null ? '' : `<span class="db-table-meta">${escapeHTML(score.time_seconds)}s</span>`}
+                        </td>
+                    `).join('');
                     return `
                         <tr>
                             <th>N° ${escapeHTML(row.order_index)} ${escapeHTML(row.athlete_name)}<span class="db-table-meta">#${row.athlete_id} ${row.completed ? 'completed' : 'pending'}</span></th>
@@ -958,6 +1060,15 @@ function initAdmin() {
                         <td>${escapeHTML(score.athlete_name || 'Missing athlete')} <span class="db-table-meta">#${escapeHTML(score.athlete_id)}</span></td>
                         <td>${escapeHTML(score.judge_name || 'Missing judge')} <span class="db-table-meta">#${escapeHTML(score.judge_id)}</span></td>
                         <td>${escapeHTML(score.score)}</td>
+                    </tr>
+                `).join('');
+
+                const timeRows = times.map(time => `
+                    <tr>
+                        <td>${escapeHTML(time.id)}</td>
+                        <td>${escapeHTML(time.athlete_name || 'Missing athlete')} <span class="db-table-meta">#${escapeHTML(time.athlete_id)}</span></td>
+                        <td>${escapeHTML(time.judge_name || 'Missing judge')} <span class="db-table-meta">#${escapeHTML(time.judge_id)}</span></td>
+                        <td>${escapeHTML(time.time_seconds)}s</td>
                     </tr>
                 `).join('');
 
@@ -1004,6 +1115,16 @@ function initAdmin() {
                                     </table>
                                 </div>
                             </div>
+
+                            <div class="db-section">
+                                <h4>Times Table</h4>
+                                <div class="db-table-wrap">
+                                    <table class="db-table">
+                                        <thead><tr><th>ID</th><th>Athlete</th><th>Judge</th><th>Time</th></tr></thead>
+                                        <tbody>${timeRows || '<tr><td colspan="4">No times submitted yet.</td></tr>'}</tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1029,6 +1150,7 @@ function initAdmin() {
     async function loadConfigSettings() {
         try {
             const cfg = await fetchAPI('/config');
+            adminConfig = cfg;
             applyBrandingVisibility(cfg.isLicensed);
             applyAppName(cfg.appName);
             applyAppIcon(cfg.appIconUrl);
@@ -1053,9 +1175,33 @@ function initAdmin() {
             if (finalistsCountEl && cfg.finalistsCount) {
                 finalistsCountEl.value = cfg.finalistsCount;
             }
+            const timeMinEl = document.getElementById('time-min-input');
+            if (timeMinEl) {
+                timeMinEl.value = cfg.timeMinSeconds || cfg.timeThresholdSeconds || '15';
+            }
+            const timeMaxEl = document.getElementById('time-max-input');
+            if (timeMaxEl) {
+                timeMaxEl.value = cfg.timeMaxSeconds || '45';
+            }
+            const timeDeductionEl = document.getElementById('time-deduction-input');
+            if (timeDeductionEl) {
+                timeDeductionEl.value = cfg.timeDeductionPoints || '0';
+            }
+            renderTimeJudgeOptions();
         } catch(e) {
             console.error('Failed to load config', e);
         }
+    }
+
+    function renderTimeJudgeOptions() {
+        const selectEl = document.getElementById('time-judge-select');
+        if (!selectEl) return;
+
+        const currentValue = String(adminConfig.timeJudgeId || selectEl.value || '');
+        selectEl.innerHTML = '<option value="">No time judge</option>' + adminJudges.map(judge => (
+            `<option value="${escapeHTML(judge.id)}">${escapeHTML(judge.username)}</option>`
+        )).join('');
+        selectEl.value = adminJudges.some(judge => String(judge.id) === currentValue) ? currentValue : '';
     }
 
     async function loadAthletes() {
@@ -1189,6 +1335,8 @@ function initAdmin() {
     async function loadJudges() {
         try {
             const judges = await fetchAPI('/admin/judges');
+            adminJudges = judges;
+            renderTimeJudgeOptions();
             const listEl = document.getElementById('admin-judges-list');
             listEl.innerHTML = '';
 
@@ -1325,6 +1473,52 @@ function initAdmin() {
                 await fetchAPI('/admin/config', 'PUT', { scoringFormula });
             } catch(e) {
                 alert('Failed to update scoring formula: ' + e.message);
+            }
+        });
+    }
+
+    const timeDeductionForm = document.getElementById('time-deduction-form');
+    if (timeDeductionForm) {
+        timeDeductionForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const timeJudgeId = document.getElementById('time-judge-select').value;
+            const minValue = document.getElementById('time-min-input').value;
+            const maxValue = document.getElementById('time-max-input').value;
+            const deductionValue = document.getElementById('time-deduction-input').value;
+            const timeMinSeconds = Number(minValue);
+            const timeMaxSeconds = Number(maxValue);
+            const timeDeductionPoints = Number(deductionValue);
+
+            if (minValue.trim() === '' || !Number.isFinite(timeMinSeconds) || timeMinSeconds < 0) {
+                return alert('Enter a valid minimum time');
+            }
+            if (maxValue.trim() === '' || !Number.isFinite(timeMaxSeconds) || timeMaxSeconds < 0) {
+                return alert('Enter a valid maximum time');
+            }
+            if (timeMaxSeconds < timeMinSeconds) {
+                return alert('Maximum time must be greater than or equal to minimum time');
+            }
+            if (deductionValue.trim() === '' || !Number.isFinite(timeDeductionPoints) || timeDeductionPoints < 0) {
+                return alert('Enter valid deduction points');
+            }
+
+            try {
+                await fetchAPI('/admin/config', 'PUT', {
+                    timeJudgeId,
+                    timeMinSeconds,
+                    timeMaxSeconds,
+                    timeDeductionPoints
+                });
+                adminConfig = {
+                    ...adminConfig,
+                    timeJudgeId,
+                    timeMinSeconds: String(timeMinSeconds),
+                    timeMaxSeconds: String(timeMaxSeconds),
+                    timeDeductionPoints: String(timeDeductionPoints)
+                };
+                alert('Time settings updated!');
+            } catch(e) {
+                alert('Failed to update time settings: ' + e.message);
             }
         });
     }
