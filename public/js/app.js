@@ -103,17 +103,65 @@ async function checkBranding() {
     }
 }
 
-function countryFlag(country) {
+const isoCountryCodes = [
+    'AC','AD','AE','AF','AG','AI','AL','AM','AO','AQ','AR','AS','AT','AU','AW','AX','AZ',
+    'BA','BB','BD','BE','BF','BG','BH','BI','BJ','BL','BM','BN','BO','BQ','BR','BS','BT','BV','BW','BY','BZ',
+    'CA','CC','CD','CF','CG','CH','CI','CK','CL','CM','CN','CO','CP','CR','CU','CV','CW','CX','CY','CZ',
+    'DE','DG','DJ','DK','DM','DO','DZ','EA','EC','EE','EG','EH','ER','ES','ET','EU','EZ',
+    'FI','FJ','FK','FM','FO','FR',
+    'GA','GB','GD','GE','GF','GG','GH','GI','GL','GM','GN','GP','GQ','GR','GS','GT','GU','GW','GY',
+    'HK','HM','HN','HR','HT','HU',
+    'IC','ID','IE','IL','IM','IN','IO','IQ','IR','IS','IT',
+    'JE','JM','JO','JP',
+    'KE','KG','KH','KI','KM','KN','KP','KR','KW','KY','KZ',
+    'LA','LB','LC','LI','LK','LR','LS','LT','LU','LV','LY',
+    'MA','MC','MD','ME','MF','MG','MH','MK','ML','MM','MN','MO','MP','MQ','MR','MS','MT','MU','MV','MW','MX','MY','MZ',
+    'NA','NC','NE','NF','NG','NI','NL','NO','NP','NR','NU','NZ',
+    'OM',
+    'PA','PE','PF','PG','PH','PK','PL','PM','PN','PR','PS','PT','PW','PY',
+    'QA','QO','RE','RO','RS','RU','RW',
+    'SA','SB','SC','SD','SE','SG','SH','SI','SJ','SK','SL','SM','SN','SO','SR','SS','ST','SV','SX','SY','SZ',
+    'TA','TC','TD','TF','TG','TH','TJ','TK','TL','TM','TN','TO','TR','TT','TV','TW','TZ',
+    'UA','UG','UM','UN','US','UY','UZ',
+    'VA','VC','VE','VG','VI','VN','VU',
+    'WF','WS',
+    'XK',
+    'YE','YT',
+    'ZA','ZM','ZW'
+];
+
+const countryDisplayNames = typeof Intl !== 'undefined' && Intl.DisplayNames
+    ? new Intl.DisplayNames(['en'], { type: 'region' })
+    : null;
+
+function countryNameFromCode(code) {
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedCode)) return '';
+    if (countryDisplayNames) {
+        const name = countryDisplayNames.of(normalizedCode);
+        if (name && name !== normalizedCode) return name;
+    }
+    return normalizedCode;
+}
+
+function countryCodeFromInput(country) {
     const value = String(country || '').trim();
     if (!value) return '';
-    const aliases = {
-        austria: 'AT', germany: 'DE', switzerland: 'CH', italy: 'IT', slovenia: 'SI',
-        france: 'FR', spain: 'ES', portugal: 'PT', netherlands: 'NL', belgium: 'BE',
-        poland: 'PL', czechia: 'CZ', 'czech republic': 'CZ', slovakia: 'SK',
-        hungary: 'HU', croatia: 'HR', 'united kingdom': 'GB', uk: 'GB',
-        england: 'GB', ireland: 'IE', usa: 'US', 'united states': 'US'
-    };
-    const code = value.length === 2 ? value.toUpperCase() : aliases[value.toLowerCase()];
+    const directCode = value.toUpperCase();
+    if (/^[A-Z]{2}$/.test(directCode)) return directCode;
+    const lowerValue = value.toLowerCase();
+    return isoCountryCodes.find(code => countryNameFromCode(code).toLowerCase() === lowerValue) || '';
+}
+
+function normalizeCountryName(country) {
+    const value = String(country || '').trim();
+    if (!value) return '';
+    const code = countryCodeFromInput(value);
+    return code ? countryNameFromCode(code) : value;
+}
+
+function countryFlag(country) {
+    const code = countryCodeFromInput(country);
     if (!code || !/^[A-Z]{2}$/.test(code)) return '';
     return code.replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
@@ -1318,6 +1366,12 @@ function initAdmin() {
                     const preview = item.querySelector('.athlete-flag-preview');
                     if (preview) preview.textContent = countryFlag(input.value);
                 });
+                input.addEventListener('blur', () => {
+                    input.value = normalizeCountryName(input.value);
+                    const item = input.closest('.athlete-list-item');
+                    const preview = item.querySelector('.athlete-flag-preview');
+                    if (preview) preview.textContent = countryFlag(input.value);
+                });
             });
 
             document.querySelectorAll('.save-athlete-btn').forEach(btn => {
@@ -1326,7 +1380,9 @@ function initAdmin() {
                     const currentOrder = e.target.getAttribute('data-order');
                     const item = e.target.closest('.athlete-list-item');
                     const name = item.querySelector('.athlete-name-input').value.trim();
-                    const country = item.querySelector('.athlete-country-input').value.trim();
+                    const countryInput = item.querySelector('.athlete-country-input');
+                    const country = normalizeCountryName(countryInput.value);
+                    countryInput.value = country;
                     if (!name) return alert('Name cannot be empty');
 
                     try {
@@ -1508,7 +1564,8 @@ function initAdmin() {
         const nameInput = document.getElementById('athlete-name-input');
         const countryInput = document.getElementById('athlete-country-input');
         const name = nameInput.value;
-        const country = countryInput ? countryInput.value : '';
+        const country = countryInput ? normalizeCountryName(countryInput.value) : '';
+        if (countryInput) countryInput.value = country;
         if (!name) return;
 
         try {
@@ -1519,6 +1576,13 @@ function initAdmin() {
             alert(e.message);
         }
     });
+
+    const addAthleteCountryInput = document.getElementById('athlete-country-input');
+    if (addAthleteCountryInput) {
+        addAthleteCountryInput.addEventListener('blur', () => {
+            addAthleteCountryInput.value = normalizeCountryName(addAthleteCountryInput.value);
+        });
+    }
 
     document.getElementById('add-judge-form').addEventListener('submit', async (e) => {
         e.preventDefault();
