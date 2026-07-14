@@ -1036,6 +1036,10 @@ body.leaderboard-page .container.current-container {
 }
 
 @media (max-width: 760px) {
+    #tab-split {
+        display: none;
+    }
+
     main.current-view {
         grid-template-columns: 1fr;
         gap: 1.25rem;
