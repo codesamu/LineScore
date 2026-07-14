@@ -163,6 +163,7 @@ label {
 input[type="text"],
 input[type="password"],
 input[type="number"],
+input[type="url"],
 select {
     width: 100%;
     padding: 0.95rem 1.35rem;
@@ -233,6 +234,7 @@ input[type="file"]::file-selector-button {
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="number"]:focus,
+input[type="url"]:focus,
 select:focus {
     border-color: var(--accent-color);
     background: rgba(255, 255, 255, 0.9);
@@ -387,6 +389,10 @@ button, .btn-primary, .btn-secondary, .btn-danger {
     border-radius: 10px;
 }
 
+.admin-athlete-fields .athlete-image-url-input {
+    grid-column: 2 / -1;
+}
+
 .athlete-flag-preview {
     min-width: 2rem;
     font-size: 1.25rem;
@@ -416,6 +422,10 @@ button, .btn-primary, .btn-secondary, .btn-danger {
 
     .admin-athlete-fields {
         grid-template-columns: 1fr;
+    }
+
+    .admin-athlete-fields .athlete-image-url-input {
+        grid-column: 1;
     }
 
     .admin-athlete-actions {

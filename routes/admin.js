@@ -202,6 +202,80 @@ router.post('/athlete-image/:id', express.raw({
     res.json({ success: true, imageUrl });
 }));
 
+router.put('/athlete-image-url/:id', validate({
+  params: {
+    id: { required: true, type: 'number' }
+  }
+}), asyncHandler(async (req, res) => {
+    const athleteId = parseInt(req.params.id, 10);
+    const athlete = db.getAthlete(athleteId);
+    if (!athlete) {
+        return res.status(404).json({ error: 'Athlete not found' });
+    }
+
+    const imageUrl = String(req.body.imageUrl || '').trim();
+    const shouldImport = req.body.importImage === true;
+
+    if (!imageUrl) {
+        db.updateAthleteImage(athleteId, '');
+        broadcastUpdate(req);
+        return res.json({ success: true, imageUrl: '' });
+    }
+    if (imageUrl.length > 2000) {
+        return res.status(400).json({ error: 'Image URL must be 2000 characters or less' });
+    }
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(imageUrl);
+    } catch(e) {
+        return res.status(400).json({ error: 'Enter a valid image URL' });
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return res.status(400).json({ error: 'Image URL must start with http:// or https://' });
+    }
+
+    if (!shouldImport) {
+        db.updateAthleteImage(athleteId, imageUrl);
+        broadcastUpdate(req);
+        return res.json({ success: true, imageUrl });
+    }
+
+    const response = await fetch(imageUrl, {
+        redirect: 'follow',
+        headers: {
+            'Accept': 'image/png,image/jpeg,image/gif,image/webp'
+        }
+    });
+    if (!response.ok) {
+        return res.status(400).json({ error: `Could not fetch image URL (${response.status})` });
+    }
+
+    const mimeType = String(response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+    const type = iconTypes[mimeType];
+    if (!type || type.ext === 'ico') {
+        return res.status(400).json({ error: 'Image URL must point to a PNG, JPG, GIF, or WebP image' });
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Image URL must be 5 MB or smaller' });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Image URL must be 5 MB or smaller' });
+    }
+    if (!type.magic(buffer)) {
+        return res.status(400).json({ error: 'Fetched image data does not match its file type' });
+    }
+
+    const importedImageUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+    db.updateAthleteImage(athleteId, importedImageUrl);
+    broadcastUpdate(req);
+    res.json({ success: true, imageUrl: importedImageUrl });
+}));
+
 // Admin Update Config
 router.put('/config', asyncHandler((req, res) => {
     const update = {};

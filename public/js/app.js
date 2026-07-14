@@ -1336,6 +1336,7 @@ function initAdmin() {
                 item.style.borderRadius = '12px';
                 const flag = countryFlag(athlete.country);
                 const imageUrl = athlete.image_url || '';
+                const imageLinkValue = /^https?:\/\//i.test(imageUrl) ? imageUrl : '';
                 
                 item.innerHTML = `
                     <div class="admin-athlete-media">
@@ -1349,10 +1350,13 @@ function initAdmin() {
                         <input type="text" class="athlete-name-input" value="${escapeHTML(athlete.name)}" placeholder="Athlete Name">
                         <input type="text" class="athlete-country-input" value="${escapeHTML(athlete.country || '')}" placeholder="Country">
                         <span class="athlete-flag-preview">${flag}</span>
+                        <input type="url" class="athlete-image-url-input" value="${escapeHTML(imageLinkValue)}" placeholder="Image URL">
                     </div>
                     <div class="admin-athlete-actions">
                         <input type="file" class="athlete-image-input hidden" accept="image/png,image/jpeg,image/gif,image/webp">
                         <button class="btn-secondary btn-small upload-athlete-image-btn" data-id="${athlete.id}">Photo</button>
+                        <button class="btn-secondary btn-small save-athlete-image-url-btn" data-id="${athlete.id}">Save Link</button>
+                        <button class="btn-primary btn-small import-athlete-image-url-btn" data-id="${athlete.id}">Import URL</button>
                         <button class="btn-primary btn-small save-athlete-btn" data-id="${athlete.id}" data-order="${athlete.order_index}">Save</button>
                         <button class="btn-danger btn-small delete-btn" data-id="${athlete.id}">Remove</button>
                     </div>
@@ -1424,6 +1428,43 @@ function initAdmin() {
                         input.value = '';
                     }
                 });
+            });
+
+            async function saveAthleteImageUrl(button, importImage) {
+                const item = button.closest('.athlete-list-item');
+                const id = item.getAttribute('data-id');
+                const imageUrlInput = item.querySelector('.athlete-image-url-input');
+                const imageUrl = imageUrlInput.value.trim();
+                if (importImage && !imageUrl) return alert('Enter an image URL first');
+
+                button.disabled = true;
+                try {
+                    const result = await fetchAPI(`/admin/athlete-image-url/${id}`, 'PUT', {
+                        imageUrl,
+                        importImage
+                    });
+                    if (!importImage && !imageUrl) {
+                        alert('Image cleared.');
+                    } else if (importImage) {
+                        alert('Image imported into the database.');
+                    }
+                    if (result.imageUrl && /^https?:\/\//i.test(result.imageUrl)) {
+                        imageUrlInput.value = result.imageUrl;
+                    }
+                    await loadAthletes();
+                } catch(e) {
+                    alert((importImage ? 'Failed to import image: ' : 'Failed to save image link: ') + e.message);
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
+            document.querySelectorAll('.save-athlete-image-url-btn').forEach(btn => {
+                btn.addEventListener('click', () => saveAthleteImageUrl(btn, false));
+            });
+
+            document.querySelectorAll('.import-athlete-image-url-btn').forEach(btn => {
+                btn.addEventListener('click', () => saveAthleteImageUrl(btn, true));
             });
 
             // HTML5 Drag and Drop listeners
