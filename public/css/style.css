@@ -1214,6 +1214,33 @@ body.tv-active #leaderboard-list .leaderboard-item .score {
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
+@media (max-width: 760px) {
+    .tv-popup {
+        width: min(92vw, 420px);
+        padding: 1.5rem 1.25rem;
+        border-radius: 22px;
+    }
+
+    .tv-popup h2 {
+        font-size: 1rem;
+        letter-spacing: 1px;
+    }
+
+    .tv-popup .athlete-name {
+        font-size: clamp(1.7rem, 8vw, 2.5rem);
+        overflow-wrap: anywhere;
+    }
+
+    .tv-popup .stats {
+        font-size: 1.7rem;
+    }
+
+    .tv-popup .badge {
+        font-size: 1rem;
+        padding: 0.5rem 1.1rem;
+    }
+}
+
 .athlete-list-item.dragging {
     opacity: 0.4;
     border: 2px dashed var(--accent-color) !important;

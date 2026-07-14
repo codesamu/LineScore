@@ -385,6 +385,11 @@ function initLeaderboard() {
         }
     }
 
+    function shouldShowRunAnnouncement() {
+        return document.body.classList.contains('tv-active') ||
+            (mainEl.classList.contains('current-view') && window.matchMedia('(max-width: 760px)').matches);
+    }
+
     function handleTVScrollingMode(mode) {
         if (!document.body.classList.contains('tv-active')) return;
 
@@ -546,8 +551,8 @@ function initLeaderboard() {
                     });
                 });
 
-                // Trigger announcements if TV Mode is active
-                if (document.body.classList.contains('tv-active')) {
+                // Trigger announcements in TV mode and phone current view.
+                if (shouldShowRunAnnouncement()) {
                     if (newlyCompleted.length > 0) {
                         const { athlete, rank } = newlyCompleted[0];
                         triggerTVAnnouncement(athlete.name, athlete.total_score, rank, 'Run Completed!');
