@@ -573,6 +573,13 @@ button, .btn-primary, .btn-secondary, .btn-danger {
     vertical-align: baseline;
 }
 
+.leaderboard-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
 .leaderboard-item .score {
     font-size: 1.75rem;
     font-weight: 800;
@@ -1051,6 +1058,26 @@ body.leaderboard-page .container.current-container {
 
     main.current-view .tv-athlete-name {
         font-size: clamp(1.8rem, 9vw, 3rem);
+    }
+
+    .leaderboard-item .name {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
+        line-height: 1.15;
+    }
+
+    .leaderboard-meta {
+        min-height: 1.55rem;
+    }
+
+    .leaderboard-time {
+        margin-left: 0;
+    }
+
+    .status-badge {
+        margin-left: 0;
     }
 }
 

@@ -577,7 +577,7 @@ function initLeaderboard() {
             item.className = 'leaderboard-item';
             item.innerHTML = `
                 <div class="rank">#${index + 1}</div>
-                <div class="name">${athlete.name}${renderTimeLabel(athlete)}</div>
+                <div class="name"><span class="athlete-name-text">${athlete.name}</span><span class="leaderboard-meta">${renderTimeLabel(athlete)}</span></div>
                 <div class="score">${athlete.total_score} pts</div>
             `;
             leaderboardListEl.appendChild(item);
@@ -605,7 +605,7 @@ function initLeaderboard() {
 
             item.innerHTML = `
                 <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 5.5rem;">N° ${athlete.order_index}</div>
-                <div class="name">${athlete.name}${renderTimeLabel(athlete)} ${statusLabel}</div>
+                <div class="name"><span class="athlete-name-text">${athlete.name}</span><span class="leaderboard-meta">${renderTimeLabel(athlete)}${statusLabel}</span></div>
                 <div class="score" style="font-size: 1.1rem; opacity: 0.7;">${athlete.completed ? athlete.total_score + ' pts' : '-'}</div>
             `;
             startlistListEl.appendChild(item);
