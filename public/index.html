@@ -11,19 +11,20 @@
 </head>
 
 <body class="leaderboard-page">
-    <div class="container">
+    <div class="container current-container">
         <header>
             <h1 data-app-name>LineScore</h1>
         </header>
 
         <div class="tabs mb-4">
-            <button id="tab-leaderboard" class="tab-btn active">Leaderboard</button>
+            <button id="tab-current" class="tab-btn active">Current</button>
+            <button id="tab-leaderboard" class="tab-btn">Leaderboard</button>
             <button id="tab-startlist" class="tab-btn">Starting List</button>
             <button id="tab-split" class="tab-btn">Split View</button>
         </div>
 
-        <main>
-            <section id="tv-athlete-feature" class="tv-athlete-feature hidden">
+        <main class="current-view">
+            <section id="tv-athlete-feature" class="tv-athlete-feature">
                 <div class="tv-athlete-photo-wrap">
                     <img id="tv-athlete-photo" class="tv-athlete-photo hidden" alt="">
                     <div id="tv-athlete-photo-placeholder" class="tv-athlete-photo-placeholder">No Photo</div>

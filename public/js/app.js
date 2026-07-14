@@ -179,40 +179,45 @@ function initLeaderboard() {
     const tvCountryEl = document.getElementById('tv-athlete-country');
 
     // Tab Switching Logic
+    const tabCurrent = document.getElementById('tab-current');
     const tabLeaderboard = document.getElementById('tab-leaderboard');
     const tabStartlist = document.getElementById('tab-startlist');
     const tabSplit = document.getElementById('tab-split');
     const contentLeaderboard = document.getElementById('leaderboard-tab-content');
     const contentStartlist = document.getElementById('startlist-tab-content');
+    const mainEl = document.querySelector('main');
+    const containerEl = document.querySelector('.container');
+
+    function setActiveView(view) {
+        tabCurrent.classList.toggle('active', view === 'current');
+        tabLeaderboard.classList.toggle('active', view === 'leaderboard');
+        tabStartlist.classList.toggle('active', view === 'startlist');
+        tabSplit.classList.toggle('active', view === 'split');
+
+        contentLeaderboard.classList.toggle('hidden', view === 'startlist');
+        contentStartlist.classList.toggle('hidden', view !== 'startlist' && view !== 'split');
+        tvFeatureEl.classList.toggle('hidden', view !== 'current');
+
+        mainEl.classList.toggle('current-view', view === 'current');
+        mainEl.classList.toggle('split-view', view === 'split');
+        containerEl.classList.toggle('current-container', view === 'current');
+        containerEl.classList.toggle('split-container', view === 'split');
+    }
+
+    tabCurrent.addEventListener('click', () => {
+        setActiveView('current');
+    });
 
     tabLeaderboard.addEventListener('click', () => {
-        tabLeaderboard.classList.add('active');
-        tabStartlist.classList.remove('active');
-        tabSplit.classList.remove('active');
-        contentLeaderboard.classList.remove('hidden');
-        contentStartlist.classList.add('hidden');
-        document.querySelector('main').classList.remove('split-view');
-        document.querySelector('.container').classList.remove('split-container');
+        setActiveView('leaderboard');
     });
 
     tabStartlist.addEventListener('click', () => {
-        tabStartlist.classList.add('active');
-        tabLeaderboard.classList.remove('active');
-        tabSplit.classList.remove('active');
-        contentStartlist.classList.remove('hidden');
-        contentLeaderboard.classList.add('hidden');
-        document.querySelector('main').classList.remove('split-view');
-        document.querySelector('.container').classList.remove('split-container');
+        setActiveView('startlist');
     });
 
     tabSplit.addEventListener('click', () => {
-        tabSplit.classList.add('active');
-        tabLeaderboard.classList.remove('active');
-        tabStartlist.classList.remove('active');
-        contentLeaderboard.classList.remove('hidden');
-        contentStartlist.classList.remove('hidden');
-        document.querySelector('main').classList.add('split-view');
-        document.querySelector('.container').classList.add('split-container');
+        setActiveView('split');
     });
 
     // TV Mode Controller & Dynamic State
@@ -424,11 +429,7 @@ function initLeaderboard() {
         document.body.classList.add('tv-active');
         tabContainer.classList.add('hidden');
         footer.classList.add('hidden');
-        contentLeaderboard.classList.remove('hidden');
-        contentStartlist.classList.add('hidden');
-        document.querySelector('main').classList.remove('split-view');
-        document.querySelector('.container').classList.remove('split-container');
-        if (tvFeatureEl) tvFeatureEl.classList.remove('hidden');
+        setActiveView('current');
         exitTvBtn.classList.remove('hidden');
         exitTvBtn.style.opacity = '1';
         exitTvBtn.style.pointerEvents = 'auto';
@@ -447,7 +448,7 @@ function initLeaderboard() {
         }
 
         document.body.classList.remove('tv-active');
-        if (tvFeatureEl) tvFeatureEl.classList.add('hidden');
+        setActiveView('current');
         tabContainer.classList.remove('hidden');
         footer.classList.remove('hidden');
         exitTvBtn.classList.add('hidden');
@@ -468,7 +469,7 @@ function initLeaderboard() {
     document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement) {
             document.body.classList.remove('tv-active');
-            if (tvFeatureEl) tvFeatureEl.classList.add('hidden');
+            setActiveView('current');
             tabContainer.classList.remove('hidden');
             footer.classList.remove('hidden');
             exitTvBtn.classList.add('hidden');

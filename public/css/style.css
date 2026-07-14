@@ -970,58 +970,23 @@ main.split-view {
     max-width: 1100px;
 }
 
-/* TV Mode structural layout */
-body.tv-active {
-    overflow: hidden !important;
-    height: 100vh !important;
-}
-
-body.tv-active .container {
-    height: 100vh !important;
-    max-width: 100% !important;
-    width: 95% !important;
-    padding-top: 20px !important;
-    padding-bottom: 20px !important;
-    display: flex !important;
-    flex-direction: column !important;
-}
-
-body.tv-active header {
-    display: none !important;
-}
-
-body.tv-active main {
-    flex-grow: 1 !important;
-    height: calc(100vh - 40px) !important;
-    overflow: hidden !important;
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-    gap: 2rem !important;
-    align-items: stretch !important;
-}
-
-body.tv-active #leaderboard-tab-content,
-body.tv-active #startlist-tab-content {
-    height: 100% !important;
-    overflow-y: auto !important;
-    scrollbar-width: none !important; /* Hide scrollbar */
-}
-
-body.tv-active #leaderboard-tab-content::-webkit-scrollbar,
-body.tv-active #startlist-tab-content::-webkit-scrollbar {
-    display: none !important;
-}
-
-body.tv-active #startlist-tab-content {
-    display: none !important;
-}
-
 .tv-athlete-feature {
     min-height: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 1.5rem;
+}
+
+main.current-view {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+}
+
+body.leaderboard-page .container.current-container {
+    max-width: 1180px;
 }
 
 .tv-athlete-photo-wrap {
@@ -1070,6 +1035,67 @@ body.tv-active #startlist-tab-content {
     font-weight: 600;
 }
 
+@media (max-width: 760px) {
+    main.current-view {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+    }
+
+    main.current-view .tv-athlete-photo-wrap {
+        height: min(48vh, 360px);
+    }
+
+    main.current-view .tv-athlete-name {
+        font-size: clamp(1.8rem, 9vw, 3rem);
+    }
+}
+
+/* TV Mode structural layout */
+body.tv-active {
+    overflow: hidden !important;
+    height: 100vh !important;
+}
+
+body.tv-active .container {
+    height: 100vh !important;
+    max-width: 100% !important;
+    width: 95% !important;
+    padding-top: 20px !important;
+    padding-bottom: 20px !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+body.tv-active header {
+    display: none !important;
+}
+
+body.tv-active main.current-view {
+    flex-grow: 1 !important;
+    height: calc(100vh - 40px) !important;
+    overflow: hidden !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 2rem !important;
+    align-items: stretch !important;
+}
+
+body.tv-active #leaderboard-tab-content,
+body.tv-active #startlist-tab-content {
+    height: 100% !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+}
+
+body.tv-active #leaderboard-tab-content::-webkit-scrollbar,
+body.tv-active #startlist-tab-content::-webkit-scrollbar {
+    display: none !important;
+}
+
+body.tv-active #startlist-tab-content {
+    display: none !important;
+}
+
 body.tv-active #leaderboard-tab-content {
     min-width: 0;
 }
@@ -1087,9 +1113,10 @@ body.tv-active #leaderboard-list .leaderboard-item .score {
 }
 
 @media (max-width: 900px) {
-    body.tv-active main {
+    body.tv-active main.current-view {
         grid-template-columns: 1fr !important;
         gap: 1rem !important;
+        overflow-y: auto !important;
     }
 
     .tv-athlete-photo-wrap {
