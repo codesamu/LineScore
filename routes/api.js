@@ -15,7 +15,7 @@ const broadcastUpdate = (req) => {
 // Global license lockdown middleware for api endpoints
 const requireLicense = (req, res, next) => {
   // Always allow config and login endpoints (login is checked inside for admin/judge distinction)
-  if (req.path === '/config' || req.path === '/login') {
+  if (req.path === '/config' || req.path === '/login' || req.path === '/access-login') {
     return next();
   }
 
@@ -56,6 +56,35 @@ router.post('/login', validate({
   }
 
   res.status(401).json({ error: 'Invalid username or PIN' });
+}));
+
+// Login a judge from a QR/NFC access link.
+router.post('/access-login', validate({
+  body: {
+    token: { required: true }
+  }
+}), asyncHandler((req, res) => {
+  const config = db.getConfig();
+  const licenseInfo = validateLicenseKey(config.licenseKey);
+  if (!licenseInfo.isLicensed) {
+    return res.status(402).json({ error: 'License Required. Judge logins are currently disabled.' });
+  }
+
+  const judge = db.getJudgeByAccessToken(req.body.token);
+  if (judge) {
+    return res.json({ success: true, role: 'judge', id: judge.id, username: judge.username });
+  }
+
+  res.status(401).json({ error: 'Invalid judge access link' });
+}));
+
+// Get judge names for the judge login dropdown. PINs are intentionally omitted.
+router.get('/judges', asyncHandler((req, res) => {
+  const judges = db.getJudges().map(judge => ({
+    id: judge.id,
+    username: judge.username
+  }));
+  res.json(judges);
 }));
 
 // Get Current Athlete (Pending / Active)

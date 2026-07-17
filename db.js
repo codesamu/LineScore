@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const dbDir = path.join(__dirname, 'db');
 if (!fs.existsSync(dbDir)) {
@@ -10,12 +11,15 @@ const dbPath = path.join(dbDir, 'database.sqlite');
 const db = new Database(dbPath);
 const managedTables = ['judges', 'athletes', 'scores', 'run_times', 'config'];
 
+const createAccessToken = () => crypto.randomBytes(24).toString('hex');
+
 // Initialize tables if they don't exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS judges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
-    pin TEXT
+    pin TEXT,
+    access_token TEXT UNIQUE
   );
   CREATE TABLE IF NOT EXISTS athletes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +50,22 @@ db.exec(`
     value TEXT
   );
 `);
+
+const ensureJudgeAccessTokens = () => {
+  const judgeColumns = db.prepare('PRAGMA table_info(judges)').all().map(col => col.name);
+  if (!judgeColumns.includes('access_token')) {
+    db.prepare('ALTER TABLE judges ADD COLUMN access_token TEXT').run();
+  }
+  db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_judges_access_token ON judges(access_token)').run();
+
+  const judgesWithoutTokens = db.prepare("SELECT id FROM judges WHERE access_token IS NULL OR access_token = ''").all();
+  const updateToken = db.prepare('UPDATE judges SET access_token = ? WHERE id = ?');
+  judgesWithoutTokens.forEach(judge => {
+    updateToken.run(createAccessToken(), judge.id);
+  });
+};
+
+ensureJudgeAccessTokens();
 
 // Insert default config if empty
 const configCount = db.prepare('SELECT COUNT(*) as count FROM config').get();
@@ -171,8 +191,8 @@ if (fs.existsSync(jsonPath)) {
       const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
       db.transaction(() => {
         if (data.judges) {
-          const insertJudge = db.prepare('INSERT INTO judges (id, username, pin) VALUES (?, ?, ?)');
-          data.judges.forEach(j => insertJudge.run(j.id, j.username, j.pin));
+          const insertJudge = db.prepare('INSERT INTO judges (id, username, pin, access_token) VALUES (?, ?, ?, ?)');
+          data.judges.forEach(j => insertJudge.run(j.id, j.username, j.pin, j.access_token || createAccessToken()));
         }
         if (data.athletes) {
           const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
@@ -203,8 +223,10 @@ module.exports = {
 
   getJudgeByLogin: (username, pin) => db.prepare('SELECT * FROM judges WHERE LOWER(username) = LOWER(?) AND pin = ?').get(username, pin),
 
+  getJudgeByAccessToken: (token) => db.prepare('SELECT * FROM judges WHERE access_token = ?').get(token),
+
   addJudge: (username, pin) => {
-    const info = db.prepare('INSERT INTO judges (username, pin) VALUES (?, ?)').run(username, pin);
+    const info = db.prepare('INSERT INTO judges (username, pin, access_token) VALUES (?, ?, ?)').run(username, pin, createAccessToken());
     return info.lastInsertRowid;
   },
 
@@ -659,7 +681,7 @@ module.exports = {
         db.transaction(() => {
           const uploadedTables = db.prepare("SELECT name FROM uploaded.sqlite_master WHERE type = 'table'").all().map(row => row.name);
 
-          copyUploadedTable('judges', ['id', 'username', 'pin']);
+          copyUploadedTable('judges', ['id', 'username', 'pin', 'access_token']);
           copyUploadedTable('athletes', ['id', 'name', 'order_index', 'completed', 'round', 'source_athlete_id', 'country', 'image_url']);
           copyUploadedTable('scores', ['id', 'athlete_id', 'judge_id', 'score']);
           if (uploadedTables.includes('run_times')) {
@@ -691,6 +713,7 @@ module.exports = {
           db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run(key, value);
         }
       }
+      ensureJudgeAccessTokens();
     } finally {
       if (fs.existsSync(uploadPath)) {
         fs.unlinkSync(uploadPath);

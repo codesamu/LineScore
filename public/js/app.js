@@ -686,6 +686,9 @@ function initJudge() {
     let judge = judgeStr ? JSON.parse(judgeStr) : null;
     let numJudges = 6;
     let judgeConfig = {};
+    let judgeOptionsLoaded = false;
+    const accessToken = new URLSearchParams(window.location.search).get('access');
+    let accessLoginAttempted = false;
 
     function isTimeJudge() {
         return judge && String(judgeConfig.timeJudgeId || '') === String(judge.id);
@@ -730,9 +733,12 @@ function initJudge() {
                 const overlay = document.getElementById('license-lock-overlay');
                 if (overlay) overlay.remove();
                 
-                if (judge) {
+                if (accessToken) {
+                    loginWithAccessToken(accessToken);
+                } else if (judge) {
                     showDashboard();
                 } else {
+                    loadJudgeOptions();
                     loginView.classList.remove('hidden');
                 }
             }
@@ -740,8 +746,79 @@ function initJudge() {
     }
     loadConfig();
 
-    if (judge) {
+    if (judge && !accessToken) {
         showDashboard();
+    }
+
+    async function loginWithAccessToken(token) {
+        if (accessLoginAttempted) return;
+        accessLoginAttempted = true;
+
+        const errorEl = document.getElementById('login-error');
+        try {
+            const res = await fetchAPI('/access-login', 'POST', { token });
+            if (res.role === 'judge') {
+                judge = { id: res.id, username: res.username };
+                sessionStorage.setItem('judge', JSON.stringify(judge));
+                window.history.replaceState({}, document.title, window.location.pathname);
+                showDashboard();
+            } else {
+                throw new Error('Invalid judge access link');
+            }
+        } catch (e) {
+            sessionStorage.removeItem('judge');
+            judge = null;
+            loadJudgeOptions();
+            loginView.classList.remove('hidden');
+            dashboardView.classList.add('hidden');
+            if (errorEl) {
+                errorEl.textContent = e.message;
+                errorEl.classList.remove('hidden');
+            }
+        }
+    }
+
+    async function loadJudgeOptions() {
+        if (judgeOptionsLoaded) return;
+
+        const selectEl = document.getElementById('username');
+        const errorEl = document.getElementById('login-error');
+        if (!selectEl) return;
+
+        selectEl.disabled = true;
+        selectEl.innerHTML = '<option value="">Loading judges...</option>';
+
+        try {
+            const judges = await fetchAPI('/judges');
+            judgeOptionsLoaded = true;
+
+            if (judges.length === 0) {
+                selectEl.innerHTML = '<option value="">No judges available</option>';
+                return;
+            }
+
+            selectEl.innerHTML = '<option value="">Select judge</option>' + judges.map(judgeOption => (
+                `<option value="${escapeJudgeOption(judgeOption.username)}">${escapeJudgeOption(judgeOption.username)}</option>`
+            )).join('');
+            selectEl.disabled = false;
+            if (errorEl) errorEl.classList.add('hidden');
+        } catch (e) {
+            selectEl.innerHTML = '<option value="">Unable to load judges</option>';
+            if (errorEl) {
+                errorEl.textContent = e.message;
+                errorEl.classList.remove('hidden');
+            }
+        }
+    }
+
+    function escapeJudgeOption(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[char]));
     }
 
     // Login Form
@@ -1561,15 +1638,34 @@ function initAdmin() {
                 item.style.gap = '0.5rem';
                 item.innerHTML = `
                     <div class="flex-row flex-grow" style="width: 100%;">
-                        <input type="text" class="judge-name-input" value="${judge.username}" style="padding: 0.5rem; border-radius: 10px; font-weight: 600;" placeholder="Judge Name" class="flex-grow">
-                        <input type="text" class="judge-pin-input" value="${judge.pin}" style="width: 100px; padding: 0.5rem; border-radius: 10px;" placeholder="PIN">
+                        <input type="text" class="judge-name-input" value="${escapeHTML(judge.username)}" style="padding: 0.5rem; border-radius: 10px; font-weight: 600;" placeholder="Judge Name" class="flex-grow">
+                        <input type="text" class="judge-pin-input" value="${escapeHTML(judge.pin)}" style="width: 100px; padding: 0.5rem; border-radius: 10px;" placeholder="PIN">
                     </div>
                     <div class="flex-row">
+                        <button class="btn-secondary btn-small copy-judge-link-btn" data-token="${escapeHTML(judge.access_token)}">Copy Access Link</button>
                         <button class="btn-primary btn-small save-judge-btn" data-id="${judge.id}">Save</button>
                         <button class="btn-danger btn-small delete-judge-btn" data-id="${judge.id}">Remove</button>
                     </div>
                 `;
                 listEl.appendChild(item);
+            });
+
+            document.querySelectorAll('.copy-judge-link-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const token = e.target.getAttribute('data-token');
+                    const accessUrl = `${window.location.origin}/judge?access=${encodeURIComponent(token)}`;
+
+                    try {
+                        await copyTextToClipboard(accessUrl);
+                        const originalText = e.target.textContent;
+                        e.target.textContent = 'Copied';
+                        setTimeout(() => {
+                            e.target.textContent = originalText;
+                        }, 1600);
+                    } catch (err) {
+                        window.prompt('Copy this judge access link:', accessUrl);
+                    }
+                });
             });
 
             document.querySelectorAll('.save-judge-btn').forEach(btn => {
@@ -1604,6 +1700,24 @@ function initAdmin() {
         } catch(e) {
             console.error(e);
         }
+    }
+
+    async function copyTextToClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw new Error('Clipboard copy failed');
     }
 
     document.getElementById('add-athlete-form').addEventListener('submit', async (e) => {
