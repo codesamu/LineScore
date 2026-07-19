@@ -618,6 +618,7 @@ function initLeaderboard() {
     }
 
     function renderTimeLabel(athlete) {
+        if (athlete.time_seconds === null || athlete.time_seconds === undefined || athlete.time_seconds === '') return '';
         const time = Number(athlete.time_seconds);
         if (!Number.isFinite(time)) return '';
         return `<span class="leaderboard-time">${time.toFixed(2)}s</span>`;
@@ -691,7 +692,7 @@ function initJudge() {
     let accessLoginAttempted = false;
 
     function isTimeJudge() {
-        return judge && String(judgeConfig.timeJudgeId || '') === String(judge.id);
+        return judgeConfig.timeDeductionEnabled !== '0' && judge && String(judgeConfig.timeJudgeId || '') === String(judge.id);
     }
 
     function configureScoreInput() {
@@ -1363,6 +1364,10 @@ function initAdmin() {
             if (finalistsCountEl && cfg.finalistsCount) {
                 finalistsCountEl.value = cfg.finalistsCount;
             }
+            const timeDeductionEnabledEl = document.getElementById('time-deduction-enabled-input');
+            if (timeDeductionEnabledEl) {
+                timeDeductionEnabledEl.checked = cfg.timeDeductionEnabled !== '0';
+            }
             const timeMinEl = document.getElementById('time-min-input');
             if (timeMinEl) {
                 timeMinEl.value = cfg.timeMinSeconds || cfg.timeThresholdSeconds || '15';
@@ -1376,9 +1381,19 @@ function initAdmin() {
                 timeDeductionEl.value = cfg.timeDeductionPoints || '0';
             }
             renderTimeJudgeOptions();
+            updateTimeDeductionControls();
         } catch(e) {
             console.error('Failed to load config', e);
         }
+    }
+
+    function updateTimeDeductionControls() {
+        const enabledEl = document.getElementById('time-deduction-enabled-input');
+        const enabled = !enabledEl || enabledEl.checked;
+        ['time-judge-select', 'time-min-input', 'time-max-input', 'time-deduction-input'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !enabled;
+        });
     }
 
     function renderTimeJudgeOptions() {
@@ -1865,8 +1880,13 @@ function initAdmin() {
 
     const timeDeductionForm = document.getElementById('time-deduction-form');
     if (timeDeductionForm) {
+        const timeDeductionEnabledEl = document.getElementById('time-deduction-enabled-input');
+        if (timeDeductionEnabledEl) {
+            timeDeductionEnabledEl.addEventListener('change', updateTimeDeductionControls);
+        }
         timeDeductionForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const timeDeductionEnabled = document.getElementById('time-deduction-enabled-input').checked ? '1' : '0';
             const timeJudgeId = document.getElementById('time-judge-select').value;
             const minValue = document.getElementById('time-min-input').value;
             const maxValue = document.getElementById('time-max-input').value;
@@ -1890,6 +1910,7 @@ function initAdmin() {
 
             try {
                 await fetchAPI('/admin/config', 'PUT', {
+                    timeDeductionEnabled,
                     timeJudgeId,
                     timeMinSeconds,
                     timeMaxSeconds,
@@ -1897,6 +1918,7 @@ function initAdmin() {
                 });
                 adminConfig = {
                     ...adminConfig,
+                    timeDeductionEnabled,
                     timeJudgeId,
                     timeMinSeconds: String(timeMinSeconds),
                     timeMaxSeconds: String(timeMaxSeconds),

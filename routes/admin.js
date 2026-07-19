@@ -305,6 +305,15 @@ router.put('/config', asyncHandler((req, res) => {
             update.timeJudgeId = String(timeJudgeId);
         }
     }
+    if (req.body.hasOwnProperty('timeDeductionEnabled')) {
+        if (req.body.timeDeductionEnabled === true || req.body.timeDeductionEnabled === '1' || req.body.timeDeductionEnabled === 1) {
+            update.timeDeductionEnabled = '1';
+        } else if (req.body.timeDeductionEnabled === false || req.body.timeDeductionEnabled === '0' || req.body.timeDeductionEnabled === 0) {
+            update.timeDeductionEnabled = '0';
+        } else {
+            return res.status(400).json({ error: 'Invalid time deduction setting' });
+        }
+    }
     const hasTimeMin = req.body.hasOwnProperty('timeMinSeconds');
     const hasTimeMax = req.body.hasOwnProperty('timeMaxSeconds');
     if (hasTimeMin || hasTimeMax) {

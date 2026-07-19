@@ -357,6 +357,20 @@ button, .btn-primary, .btn-secondary, .btn-danger {
     margin-bottom: 0;
 }
 
+.time-deduction-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: fit-content;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+.time-deduction-toggle input {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
 .admin-athlete-media {
     flex: 0 0 64px;
 }

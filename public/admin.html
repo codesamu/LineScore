@@ -121,8 +121,12 @@
 
             <section class="card admin-panel time-panel">
                 <h3>Time Deduction</h3>
-                <p class="text-sm mb-2">Choose one judge to enter a time in seconds. If the time is outside the allowed range, the deduction is subtracted from the final score.</p>
+                <p class="text-sm mb-2">Enable time deduction, choose one judge to enter a time in seconds, and set the valid range.</p>
                 <form id="time-deduction-form">
+                    <label class="time-deduction-toggle">
+                        <input type="checkbox" id="time-deduction-enabled-input">
+                        <span>Enable time deduction</span>
+                    </label>
                     <div class="time-settings-grid">
                         <div class="form-group">
                             <label for="time-judge-select">Time Judge</label>

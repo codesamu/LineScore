@@ -75,6 +75,7 @@ if (configCount.count === 0) {
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appName', 'LineScore');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('appIconUrl', '/favicon.ico');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeJudgeId', '');
+  db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeDeductionEnabled', '1');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeMinSeconds', '15');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeMaxSeconds', '45');
   db.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('timeDeductionPoints', '0');
@@ -105,6 +106,7 @@ if (hasFinalistsCount.count === 0) {
 }
 for (const [key, value] of [
   ['timeJudgeId', ''],
+  ['timeDeductionEnabled', '1'],
   ['timeMinSeconds', '15'],
   ['timeMaxSeconds', '45'],
   ['timeDeductionPoints', '0']
@@ -324,8 +326,9 @@ module.exports = {
     const jId = parseInt(judgeId, 10);
     const sVal = Number(score);
     const config = module.exports.getConfig();
+    const timeDeductionEnabled = config.timeDeductionEnabled !== '0';
     const timeJudgeId = parseInt(config.timeJudgeId, 10);
-    const isTimeJudge = Number.isInteger(timeJudgeId) && timeJudgeId === jId;
+    const isTimeJudge = timeDeductionEnabled && Number.isInteger(timeJudgeId) && timeJudgeId === jId;
     const hasTimeSeconds = timeSeconds !== null && timeSeconds !== undefined && timeSeconds !== '';
     const tVal = hasTimeSeconds ? Number(timeSeconds) : null;
 
@@ -432,8 +435,9 @@ module.exports = {
     const config = module.exports.getConfig();
     const formula = config.scoringFormula || 'sum';
     const activeRound = normalizeRound(round || config.currentRound);
+    const timeDeductionEnabled = config.timeDeductionEnabled !== '0';
     const timeJudgeId = parseInt(config.timeJudgeId, 10);
-    const hasTimeJudge = Number.isInteger(timeJudgeId) && timeJudgeId > 0;
+    const hasTimeJudge = timeDeductionEnabled && Number.isInteger(timeJudgeId) && timeJudgeId > 0;
     const timeMinSeconds = Number(config.timeMinSeconds ?? config.timeThresholdSeconds ?? 15);
     const timeMaxSeconds = Number(config.timeMaxSeconds ?? 45);
     const timeDeductionPoints = Number(config.timeDeductionPoints || 0);
@@ -647,6 +651,7 @@ module.exports = {
       currentRound: 'qualification',
       finalistsCount: '5',
       timeJudgeId: '',
+      timeDeductionEnabled: '1',
       timeMinSeconds: '15',
       timeMaxSeconds: '45',
       timeDeductionPoints: '0'
@@ -704,6 +709,7 @@ module.exports = {
         ['currentRound', 'qualification'],
         ['finalistsCount', '5'],
         ['timeJudgeId', ''],
+        ['timeDeductionEnabled', '1'],
         ['timeMinSeconds', '15'],
         ['timeMaxSeconds', '45'],
         ['timeDeductionPoints', '0']
