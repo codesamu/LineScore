@@ -460,6 +460,34 @@ button, .btn-primary, .btn-secondary, .btn-danger {
 }
 
 /* Leaderboard Specifics */
+.round-view-switch {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.25rem;
+    padding: 0.25rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.round-view-btn {
+    min-width: 8.5rem;
+    padding: 0.65rem 1rem;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.round-view-btn.active {
+    background: var(--accent-color);
+    color: white;
+    box-shadow: 0 6px 18px rgba(0, 122, 255, 0.18);
+}
+
 .leaderboard-list {
     display: flex;
     flex-direction: column;
@@ -967,6 +995,15 @@ footer {
 }
 
 @media (max-width: 800px) {
+    .round-view-switch {
+        display: grid;
+        width: 100%;
+    }
+
+    .round-view-btn {
+        min-width: 0;
+    }
+
     .db-grid {
         grid-template-columns: 1fr;
     }

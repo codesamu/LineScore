@@ -185,10 +185,22 @@ function initLeaderboard() {
     const tabSplit = document.getElementById('tab-split');
     const contentLeaderboard = document.getElementById('leaderboard-tab-content');
     const contentStartlist = document.getElementById('startlist-tab-content');
+    const roundViewSwitch = document.getElementById('round-view-switch');
     const mainEl = document.querySelector('main');
     const containerEl = document.querySelector('.container');
+    let activeView = 'current';
+    let selectedRound = 'qualification';
+    let selectedRoundInitialized = false;
+    let latestConfig = {};
+    let latestCurrentData = [];
+    let latestDisplayData = [];
+
+    function isValidRound(round) {
+        return round === 'finals' || round === 'qualification';
+    }
 
     function setActiveView(view) {
+        activeView = view;
         tabCurrent.classList.toggle('active', view === 'current');
         tabLeaderboard.classList.toggle('active', view === 'leaderboard');
         tabStartlist.classList.toggle('active', view === 'startlist');
@@ -202,6 +214,11 @@ function initLeaderboard() {
         mainEl.classList.toggle('split-view', view === 'split');
         containerEl.classList.toggle('current-container', view === 'current');
         containerEl.classList.toggle('split-container', view === 'split');
+        if (roundViewSwitch) {
+            roundViewSwitch.classList.toggle('hidden', view === 'current');
+        }
+
+        renderPublicViews();
     }
 
     tabCurrent.addEventListener('click', () => {
@@ -219,6 +236,18 @@ function initLeaderboard() {
     tabSplit.addEventListener('click', () => {
         setActiveView('split');
     });
+
+    if (roundViewSwitch) {
+        roundViewSwitch.querySelectorAll('.round-view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectedRound = isValidRound(btn.dataset.round) ? btn.dataset.round : 'qualification';
+                roundViewSwitch.querySelectorAll('.round-view-btn').forEach(option => {
+                    option.classList.toggle('active', option.dataset.round === selectedRound);
+                });
+                loadData();
+            });
+        });
+    }
 
     // TV Mode Controller & Dynamic State
     const tvModeBtn = document.getElementById('tv-mode-btn');
@@ -495,10 +524,14 @@ function initLeaderboard() {
 
     async function loadData() {
         try {
-            const [data, cfg] = await Promise.all([
-                fetchAPI('/leaderboard'),
-                fetchAPI('/config')
-            ]);
+            const cfg = await fetchAPI('/config');
+            latestConfig = cfg;
+            if (!selectedRoundInitialized) {
+                selectedRound = isValidRound(cfg.currentRound) ? cfg.currentRound : 'qualification';
+                selectedRoundInitialized = true;
+                updateRoundSwitch();
+            }
+
             applyBrandingVisibility(cfg.isLicensed);
             applyAppName(cfg.appName);
             applyAppIcon(cfg.appIconUrl);
@@ -511,15 +544,22 @@ function initLeaderboard() {
                 if (overlay) overlay.remove();
             }
 
-            renderLeaderboard(data);
-            renderStartlist(data);
-            renderTVFeature(data);
+            const currentRound = isValidRound(cfg.currentRound) ? cfg.currentRound : 'qualification';
+            const shouldPreviewFinals = selectedRound === 'finals' && currentRound === 'qualification';
+            const [currentData, selectedData] = await Promise.all([
+                fetchAPI(`/leaderboard?round=${encodeURIComponent(currentRound)}`),
+                fetchAPI(`/leaderboard?round=${encodeURIComponent(shouldPreviewFinals ? 'qualification' : selectedRound)}`)
+            ]);
+            latestCurrentData = currentData;
+            latestDisplayData = shouldPreviewFinals ? buildFinalsPreview(selectedData, cfg) : selectedData;
+
+            renderPublicViews();
 
             if (document.body.classList.contains('tv-active') && !tvFeatureEl) {
                 handleTVScrollingMode(cfg.tvScrollMode);
             }
 
-            const completed = data.filter(a => a.completed === 1);
+            const completed = currentData.filter(a => a.completed === 1);
             if (!firstLoadCompleted) {
                 firstLoadCompleted = true;
                 completed.forEach((athlete, index) => {
@@ -567,23 +607,57 @@ function initLeaderboard() {
         }
     }
 
+    function updateRoundSwitch() {
+        if (!roundViewSwitch) return;
+        roundViewSwitch.querySelectorAll('.round-view-btn').forEach(option => {
+            option.classList.toggle('active', option.dataset.round === selectedRound);
+        });
+    }
+
+    function buildFinalsPreview(qualificationData, cfg) {
+        const finalistCount = parseInt(cfg.finalistsCount, 10);
+        const limit = Number.isInteger(finalistCount) && finalistCount > 0 ? finalistCount : 5;
+        return qualificationData
+            .filter(athlete => athlete.completed === 1)
+            .slice(0, limit)
+            .map((athlete, index, qualifiers) => ({
+                ...athlete,
+                order_index: qualifiers.length - index,
+                completed: 0,
+                score_count: 0,
+                total_score: null,
+                time_seconds: null,
+                time_deduction: 0,
+                final_preview: true
+            }));
+    }
+
+    function renderPublicViews() {
+        const currentData = latestCurrentData || [];
+        const displayData = activeView === 'current' ? currentData : (latestDisplayData || []);
+        renderLeaderboard(displayData);
+        renderStartlist(displayData);
+        renderTVFeature(currentData);
+    }
+
     function renderLeaderboard(data) {
         leaderboardListEl.innerHTML = '';
-        const completed = data.filter(a => a.completed === 1);
+        const showFinalsPlaceholders = activeView !== 'current' && selectedRound === 'finals';
+        const rows = showFinalsPlaceholders ? data : data.filter(a => a.completed === 1);
         
-        if (completed.length === 0) {
+        if (rows.length === 0) {
             noLeaderboardEl.classList.remove('hidden');
             return;
         }
         noLeaderboardEl.classList.add('hidden');
 
-        completed.forEach((athlete, index) => {
+        rows.forEach((athlete, index) => {
             const item = document.createElement('div');
             item.className = 'leaderboard-item';
             item.innerHTML = `
                 <div class="rank">#${index + 1}</div>
                 <div class="name"><span class="athlete-name-text">${athlete.name}</span><span class="leaderboard-meta">${renderTimeLabel(athlete)}</span></div>
-                <div class="score">${athlete.total_score} pts</div>
+                <div class="score">${renderScoreValue(athlete, showFinalsPlaceholders)}</div>
             `;
             leaderboardListEl.appendChild(item);
         });
@@ -604,17 +678,26 @@ function initLeaderboard() {
             const item = document.createElement('div');
             item.className = 'leaderboard-item';
             
-            const statusLabel = athlete.completed 
-                ? '<span class="status-badge completed">Finished</span>' 
+            let statusLabel = athlete.completed
+                ? '<span class="status-badge completed">Finished</span>'
                 : '<span class="status-badge pending">Next Up</span>';
+            if (athlete.final_preview) {
+                statusLabel = '<span class="status-badge completed">Qualified</span>';
+            }
 
             item.innerHTML = `
                 <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 5.5rem;">N° ${athlete.order_index}</div>
                 <div class="name"><span class="athlete-name-text">${athlete.name}</span><span class="leaderboard-meta">${renderTimeLabel(athlete)}${statusLabel}</span></div>
-                <div class="score" style="font-size: 1.1rem; opacity: 0.7;">${athlete.completed ? athlete.total_score + ' pts' : '-'}</div>
+                <div class="score" style="font-size: 1.1rem; opacity: 0.7;">${renderScoreValue(athlete, activeView !== 'current' && selectedRound === 'finals')}</div>
             `;
             startlistListEl.appendChild(item);
         });
+    }
+
+    function renderScoreValue(athlete, showPartialScores = false) {
+        const score = Number(athlete.total_score);
+        const hasScore = Number(athlete.score_count) > 0 && Number.isFinite(score) && (athlete.completed || showPartialScores);
+        return hasScore ? `${score} pts` : '-';
     }
 
     function renderTimeLabel(athlete) {
