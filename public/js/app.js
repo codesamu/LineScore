@@ -177,6 +177,8 @@ function initLeaderboard() {
     const tvPhotoPlaceholderEl = document.getElementById('tv-athlete-photo-placeholder');
     const tvNameEl = document.getElementById('tv-athlete-name');
     const tvCountryEl = document.getElementById('tv-athlete-country');
+    const nextUpBannerEl = document.getElementById('next-up-banner');
+    const nextUpNameEl = document.getElementById('next-up-name');
 
     // Tab Switching Logic
     const tabCurrent = document.getElementById('tab-current');
@@ -638,6 +640,7 @@ function initLeaderboard() {
         renderLeaderboard(displayData);
         renderStartlist(displayData);
         renderTVFeature(currentData);
+        renderNextUp(currentData);
     }
 
     function renderLeaderboard(data) {
@@ -692,6 +695,31 @@ function initLeaderboard() {
             `;
             startlistListEl.appendChild(item);
         });
+    }
+
+    function renderNextUp(data) {
+        if (!nextUpBannerEl) return;
+
+        // Only shown in TV mode.
+        if (!document.body.classList.contains('tv-active')) {
+            nextUpBannerEl.classList.add('hidden');
+            return;
+        }
+
+        // "Next Up" = the athlete after the currently featured (active) one.
+        const pending = [...data]
+            .sort((a, b) => a.order_index - b.order_index)
+            .filter(a => a.completed !== 1);
+        const nextUp = pending.length > 1 ? pending[1] : null;
+
+        if (!nextUp) {
+            nextUpBannerEl.classList.add('hidden');
+            return;
+        }
+
+        const flag = countryFlag(nextUp.country);
+        nextUpNameEl.innerHTML = `${flag ? flag + ' ' : ''}${nextUp.name}`;
+        nextUpBannerEl.classList.remove('hidden');
     }
 
     function renderScoreValue(athlete, showPartialScores = false) {

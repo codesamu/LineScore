@@ -1206,6 +1206,46 @@ body.tv-active #leaderboard-list .leaderboard-item .score {
     }
 }
 
+/* TV Mode Next Up Banner */
+body.tv-active #leaderboard-tab-content {
+    position: relative;
+}
+
+.next-up-banner {
+    display: none;
+}
+
+/* The banner reuses the .leaderboard-item card styling so it matches the rows
+   above it. It is pinned to the bottom of the scroll area so it stays visible. */
+body.tv-active .next-up-banner {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    margin: 0;
+    animation: none;
+    pointer-events: none;
+    min-height: 4.75rem;
+}
+
+body.tv-active .next-up-banner .athlete-name-text {
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+body.tv-active .next-up-banner .next-up-label {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-color);
+    white-space: nowrap;
+}
+
 /* TV Mode Announcement Popup */
 .tv-popup {
     position: fixed;
