@@ -339,6 +339,15 @@ router.put('/config', asyncHandler((req, res) => {
         }
         update.timeDeductionPoints = String(timeDeductionPoints);
     }
+    if (req.body.hasOwnProperty('overallJudgeEnabled')) {
+        if (req.body.overallJudgeEnabled === true || req.body.overallJudgeEnabled === '1' || req.body.overallJudgeEnabled === 1) {
+            update.overallJudgeEnabled = '1';
+        } else if (req.body.overallJudgeEnabled === false || req.body.overallJudgeEnabled === '0' || req.body.overallJudgeEnabled === 0) {
+            update.overallJudgeEnabled = '0';
+        } else {
+            return res.status(400).json({ error: 'Invalid overall judge setting' });
+        }
+    }
     if (req.body.currentRound) {
         const validRounds = ['qualification', 'finals'];
         if (!validRounds.includes(req.body.currentRound)) {
@@ -388,6 +397,9 @@ router.put('/config', asyncHandler((req, res) => {
         return res.status(400).json({ error: 'No valid config fields provided' });
     }
     db.updateConfig(update);
+    if (Object.prototype.hasOwnProperty.call(update, 'overallJudgeEnabled')) {
+        db.refreshCompletionStatus();
+    }
     broadcastUpdate(req);
     res.json({ success: true });
 }));
@@ -414,6 +426,7 @@ router.post('/add-judge', validate({
 }), asyncHandler((req, res) => {
   const { username, pin } = req.body;
   const id = db.addJudge(username, pin);
+  db.refreshCompletionStatus();
   broadcastUpdate(req);
   res.json({ success: true, id });
 }));
@@ -425,6 +438,7 @@ router.delete('/remove-judge/:id', validate({
 }), asyncHandler((req, res) => {
   const { id } = req.params;
   db.removeJudge(id);
+  db.refreshCompletionStatus();
   broadcastUpdate(req);
   res.json({ success: true });
 }));

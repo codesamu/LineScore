@@ -774,6 +774,7 @@ function initJudge() {
     const loginView = document.getElementById('login-view');
     const dashboardView = document.getElementById('dashboard-view');
     const scoreInputEl = document.getElementById('score-input');
+    const overallScoreInputEl = document.getElementById('overall-score-input');
     const timeInputEl = document.getElementById('time-input');
     
     if (scoreInputEl) {
@@ -792,6 +793,14 @@ function initJudge() {
             }
         });
     }
+    if (overallScoreInputEl) {
+        overallScoreInputEl.addEventListener('input', () => {
+            const activeAthleteId = overallScoreInputEl.dataset.athleteId;
+            if (activeAthleteId && judge) {
+                localStorage.setItem(`draft_overall_score_${judge.id}_${activeAthleteId}`, overallScoreInputEl.value);
+            }
+        });
+    }
     
     // Check session
     const judgeStr = sessionStorage.getItem('judge');
@@ -806,11 +815,18 @@ function initJudge() {
         return judgeConfig.timeDeductionEnabled !== '0' && judge && String(judgeConfig.timeJudgeId || '') === String(judge.id);
     }
 
+    function isOverallJudgeEnabled() {
+        return judgeConfig.overallJudgeEnabled === '1';
+    }
+
     function configureScoreInput() {
         const labelEl = document.querySelector('label[for="score-input"]');
         const editLabelEl = document.querySelector('label[for="edit-score-input"]');
         const scoreInput = document.getElementById('score-input');
         const editScoreInput = document.getElementById('edit-score-input');
+        const overallContainer = document.querySelector('.overall-score-input-container');
+        const editOverallGroup = document.querySelector('.edit-overall-score-group');
+        const editOverallInput = document.getElementById('edit-overall-score-input');
         const timeContainer = document.querySelector('.time-input-container');
         const editTimeGroup = document.querySelector('.edit-time-group');
 
@@ -824,6 +840,13 @@ function initJudge() {
         });
         if (timeContainer) timeContainer.classList.toggle('hidden', !isTimeJudge());
         if (editTimeGroup) editTimeGroup.classList.toggle('hidden', !isTimeJudge());
+        if (overallContainer) overallContainer.classList.toggle('hidden', judgeConfig.overallJudgeEnabled !== '1');
+        if (editOverallGroup) editOverallGroup.classList.toggle('hidden', judgeConfig.overallJudgeEnabled !== '1');
+        if (editOverallInput) {
+            editOverallInput.min = '0';
+            editOverallInput.step = '1';
+            editOverallInput.max = '100';
+        }
     }
 
     async function loadConfig() {
@@ -994,6 +1017,7 @@ function initJudge() {
         const statusBar = document.getElementById('status-bar');
         const scoreStatus = document.getElementById('score-status');
         const scoreInputEl = document.getElementById('score-input');
+        const overallScoreInputEl = document.getElementById('overall-score-input');
         const timeInputEl = document.getElementById('time-input');
 
         if (!athlete) {
@@ -1008,6 +1032,9 @@ function initJudge() {
             if (timeInputEl) {
                 delete timeInputEl.dataset.athleteId;
             }
+            if (overallScoreInputEl) {
+                delete overallScoreInputEl.dataset.athleteId;
+            }
             return;
         }
 
@@ -1020,6 +1047,9 @@ function initJudge() {
         if (timeInputEl) {
             timeInputEl.dataset.athleteId = athlete.id;
         }
+        if (overallScoreInputEl) {
+            overallScoreInputEl.dataset.athleteId = athlete.id;
+        }
         configureScoreInput();
 
         const submittedCount = athlete.submittedJudgeIds ? athlete.submittedJudgeIds.length : 0;
@@ -1028,10 +1058,11 @@ function initJudge() {
         statusBar.innerHTML = `Scores submitted: ${submittedCount} / ${numJudges}`;
 
         const draftScore = localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`);
+        const draftOverallScore = localStorage.getItem(`draft_overall_score_${judge.id}_${athlete.id}`);
         const draftTime = localStorage.getItem(`draft_time_${judge.id}_${athlete.id}`);
 
         if (hasSubmitted) {
-            submitBtn.textContent = isTimeJudge() ? 'Update Score + Time' : 'Update Score';
+            submitBtn.textContent = isTimeJudge() && isOverallJudgeEnabled() ? 'Update Score + Overall + Time' : isTimeJudge() ? 'Update Score + Time' : isOverallJudgeEnabled() ? 'Update Score + Overall' : 'Update Score';
             submitBtn.classList.remove('btn-primary');
             submitBtn.classList.add('btn-secondary');
             submitBtn.disabled = false;
@@ -1047,6 +1078,9 @@ function initJudge() {
                         if (localStorage.getItem(`draft_score_${judge.id}_${athlete.id}`) === null) {
                             if (scoreInputEl) scoreInputEl.value = myScore.score;
                         }
+                        if (judgeConfig.overallJudgeEnabled === '1' && localStorage.getItem(`draft_overall_score_${judge.id}_${athlete.id}`) === null && overallScoreInputEl) {
+                            overallScoreInputEl.value = myScore.overall_score ?? '';
+                        }
                         if (isTimeJudge() && localStorage.getItem(`draft_time_${judge.id}_${athlete.id}`) === null) {
                             if (timeInputEl) timeInputEl.value = myScore.time_seconds ?? '';
                         }
@@ -1056,12 +1090,15 @@ function initJudge() {
             if (isTimeJudge() && draftTime !== null && timeInputEl) {
                 timeInputEl.value = draftTime;
             }
+            if (judgeConfig.overallJudgeEnabled === '1' && draftOverallScore !== null && overallScoreInputEl) {
+                overallScoreInputEl.value = draftOverallScore;
+            }
             
-            scoreStatus.textContent = isTimeJudge() ? 'You have already submitted a score and time.' : 'You have already submitted a score.';
+            scoreStatus.textContent = isOverallJudgeEnabled() ? 'You have already submitted a score and overall score.' : isTimeJudge() ? 'You have already submitted a score and time.' : 'You have already submitted a score.';
             scoreStatus.classList.remove('hidden');
             scoreStatus.className = 'status-text success';
         } else {
-            submitBtn.textContent = isTimeJudge() ? 'Submit Score + Time' : 'Submit Score';
+            submitBtn.textContent = isTimeJudge() && isOverallJudgeEnabled() ? 'Submit Score + Overall + Time' : isTimeJudge() ? 'Submit Score + Time' : isOverallJudgeEnabled() ? 'Submit Score + Overall' : 'Submit Score';
             submitBtn.classList.add('btn-primary');
             submitBtn.classList.remove('btn-secondary');
             submitBtn.disabled = false;
@@ -1074,6 +1111,9 @@ function initJudge() {
             if (isTimeJudge() && timeInputEl) {
                 timeInputEl.value = draftTime !== null ? draftTime : '';
             }
+            if (judgeConfig.overallJudgeEnabled === '1' && overallScoreInputEl) {
+                overallScoreInputEl.value = draftOverallScore !== null ? draftOverallScore : '';
+            }
             scoreStatus.classList.add('hidden');
         }
 
@@ -1083,6 +1123,13 @@ function initJudge() {
             const score = Number(rawValue);
             if (rawValue === '') return alert('Please enter a valid score');
             if (!Number.isFinite(score)) return alert('Please enter a valid score');
+
+            let overallScore = null;
+            if (judgeConfig.overallJudgeEnabled === '1') {
+                const rawOverallScore = overallScoreInputEl ? overallScoreInputEl.value.trim() : '';
+                overallScore = Number(rawOverallScore);
+                if (rawOverallScore === '' || !Number.isFinite(overallScore)) return alert('Please enter a valid overall score');
+            }
 
             let timeSeconds = null;
             if (isTimeJudge()) {
@@ -1099,11 +1146,14 @@ function initJudge() {
                     athleteId: athlete.id,
                     judgeId: judge.id,
                     score,
+                    overallScore,
                     timeSeconds
                 });
                 localStorage.removeItem(`draft_score_${judge.id}_${athlete.id}`);
+                localStorage.removeItem(`draft_overall_score_${judge.id}_${athlete.id}`);
                 localStorage.removeItem(`draft_time_${judge.id}_${athlete.id}`);
                 scoreInputEl.value = '';
+                if (overallScoreInputEl) overallScoreInputEl.value = '';
                 if (timeInputEl) timeInputEl.value = '';
                 // The socket update will trigger a reload
             } catch(e) {
@@ -1133,7 +1183,7 @@ function initJudge() {
                     <span class="font-bold">${athlete.name}</span>
                     <span class="status-badge ${athlete.completed ? 'completed' : 'pending'}">${athlete.completed ? 'Completed' : 'Pending'}</span>
                 </div>
-                <button class="btn-secondary btn-small edit-btn" data-id="${athlete.id}" data-name="${athlete.name}">${isTimeJudge() ? 'Edit Score + Time' : 'Edit Score'}</button>
+                <button class="btn-secondary btn-small edit-btn" data-id="${athlete.id}" data-name="${athlete.name}">${isTimeJudge() && isOverallJudgeEnabled() ? 'Edit Score + Overall + Time' : isTimeJudge() ? 'Edit Score + Time' : isOverallJudgeEnabled() ? 'Edit Score + Overall' : 'Edit Score'}</button>
             `;
             listEl.appendChild(item);
         }
@@ -1151,15 +1201,20 @@ function initJudge() {
         document.getElementById('edit-athlete-id').value = athleteId;
         document.getElementById('edit-athlete-name').textContent = athleteName;
         document.getElementById('edit-score-input').value = '';
+        document.getElementById('edit-overall-score-input').value = '';
         document.getElementById('edit-time-input').value = '';
-        document.querySelector('#edit-modal h3').textContent = isTimeJudge() ? 'Edit Score + Time' : 'Edit Score';
-        document.getElementById('save-edit-btn').textContent = isTimeJudge() ? 'Save Score + Time' : 'Save Score';
+        const editSuffix = [isTimeJudge() ? 'Time' : '', judgeConfig.overallJudgeEnabled === '1' ? 'Overall' : ''].filter(Boolean).join(' + ');
+        document.querySelector('#edit-modal h3').textContent = editSuffix ? `Edit Score + ${editSuffix}` : 'Edit Score';
+        document.getElementById('save-edit-btn').textContent = editSuffix ? `Save Score + ${editSuffix}` : 'Save Score';
         configureScoreInput();
         
         try {
             const myScore = await fetchAPI(`/scores/${athleteId}/${judge.id}`);
             if (myScore.score !== null) {
                 document.getElementById('edit-score-input').value = myScore.score;
+            }
+            if (judgeConfig.overallJudgeEnabled === '1' && myScore.overall_score !== null && myScore.overall_score !== undefined) {
+                document.getElementById('edit-overall-score-input').value = myScore.overall_score;
             }
             if (isTimeJudge() && myScore.time_seconds !== null && myScore.time_seconds !== undefined) {
                 document.getElementById('edit-time-input').value = myScore.time_seconds;
@@ -1180,6 +1235,13 @@ function initJudge() {
         if (rawValue === '') return alert('Please enter a valid score');
         if (!Number.isFinite(score)) return alert('Please enter a valid score');
 
+        let overallScore = null;
+        if (judgeConfig.overallJudgeEnabled === '1') {
+            const rawOverallScore = document.getElementById('edit-overall-score-input').value.trim();
+            overallScore = Number(rawOverallScore);
+            if (rawOverallScore === '' || !Number.isFinite(overallScore)) return alert('Please enter a valid overall score');
+        }
+
         let timeSeconds = null;
         if (isTimeJudge()) {
             const rawTime = document.getElementById('edit-time-input').value.trim();
@@ -1194,6 +1256,7 @@ function initJudge() {
                 athleteId,
                 judgeId: judge.id,
                 score,
+                overallScore,
                 timeSeconds
             });
             document.getElementById('edit-modal').classList.add('hidden');
@@ -1203,7 +1266,15 @@ function initJudge() {
         }
     });
 
-    socket.on('state-update', loadDashboardData);
+    socket.on('state-update', async () => {
+        try {
+            const cfg = await fetchAPI('/config');
+            judgeConfig = cfg;
+            numJudges = cfg.numJudges;
+            configureScoreInput();
+        } catch (e) {}
+        loadDashboardData();
+    });
 }
 
 // --- Admin Logic ---
@@ -1334,6 +1405,7 @@ function initAdmin() {
                     const scoreCells = row.scores.map(score => `
                         <td>
                             ${score.score === null ? '<span class="db-empty">-</span>' : escapeHTML(score.score)}
+                            ${score.overall_score === null || score.overall_score === undefined ? '' : `<span class="db-table-meta">overall: ${escapeHTML(score.overall_score)}</span>`}
                             ${score.time_seconds === null ? '' : `<span class="db-table-meta">${escapeHTML(score.time_seconds)}s</span>`}
                         </td>
                     `).join('');
@@ -1360,6 +1432,7 @@ function initAdmin() {
                         <td>${escapeHTML(score.athlete_name || 'Missing athlete')} <span class="db-table-meta">#${escapeHTML(score.athlete_id)}</span></td>
                         <td>${escapeHTML(score.judge_name || 'Missing judge')} <span class="db-table-meta">#${escapeHTML(score.judge_id)}</span></td>
                         <td>${escapeHTML(score.score)}</td>
+                        <td>${score.overall_score === null || score.overall_score === undefined ? '-' : escapeHTML(score.overall_score)}</td>
                     </tr>
                 `).join('');
 
@@ -1410,8 +1483,8 @@ function initAdmin() {
                                 <h4>Scores Table</h4>
                                 <div class="db-table-wrap">
                                     <table class="db-table">
-                                        <thead><tr><th>ID</th><th>Athlete</th><th>Judge</th><th>Score</th></tr></thead>
-                                        <tbody>${scoreRows || '<tr><td colspan="4">No scores submitted yet.</td></tr>'}</tbody>
+                                    <thead><tr><th>ID</th><th>Athlete</th><th>Judge</th><th>Score</th><th>Overall</th></tr></thead>
+                                        <tbody>${scoreRows || '<tr><td colspan="5">No scores submitted yet.</td></tr>'}</tbody>
                                     </table>
                                 </div>
                             </div>
@@ -1466,6 +1539,10 @@ function initAdmin() {
             const formulaEl = document.getElementById('scoring-formula-select');
             if (formulaEl && cfg.scoringFormula) {
                 formulaEl.value = cfg.scoringFormula;
+            }
+            const overallJudgeEnabledEl = document.getElementById('overall-judge-enabled-input');
+            if (overallJudgeEnabledEl) {
+                overallJudgeEnabledEl.checked = cfg.overallJudgeEnabled === '1';
             }
             const currentRoundEl = document.getElementById('current-round-select');
             if (currentRoundEl && cfg.currentRound) {
@@ -1985,6 +2062,19 @@ function initAdmin() {
                 await fetchAPI('/admin/config', 'PUT', { scoringFormula });
             } catch(e) {
                 alert('Failed to update scoring formula: ' + e.message);
+            }
+        });
+    }
+
+    const overallJudgeEnabledEl = document.getElementById('overall-judge-enabled-input');
+    if (overallJudgeEnabledEl) {
+        overallJudgeEnabledEl.addEventListener('change', async (e) => {
+            try {
+                await fetchAPI('/admin/config', 'PUT', { overallJudgeEnabled: e.target.checked ? '1' : '0' });
+                adminConfig = { ...adminConfig, overallJudgeEnabled: e.target.checked ? '1' : '0' };
+            } catch (error) {
+                e.target.checked = !e.target.checked;
+                alert('Failed to update overall judge setting: ' + error.message);
             }
         });
     }

@@ -98,14 +98,31 @@ router.get('/current-athlete', asyncHandler((req, res) => {
 
   // Get submitted judge IDs for this athlete
   const scores = db.getScoresForAthlete(active.id);
-  const submittedJudgeIds = scores.map(s => s.judge_id);
+  const config = db.getConfig();
+  const submittedJudgeIds = scores
+    .filter(s => config.overallJudgeEnabled !== '1' || s.overall_score !== null)
+    .map(s => s.judge_id);
   res.json({ ...active, submittedJudgeIds });
 }));
 
 // Submit/Update Score
 const handleScoreSubmit = asyncHandler((req, res) => {
-  const { athleteId, judgeId, score, timeSeconds } = req.body;
-  db.submitScore(athleteId, judgeId, score, timeSeconds);
+  const { athleteId, judgeId, score, timeSeconds, overallScore } = req.body;
+  const config = db.getConfig();
+  const parsedScore = Number(score);
+  const parsedOverallScore = overallScore === undefined || overallScore === null || overallScore === ''
+    ? null
+    : Number(overallScore);
+  if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
+    return res.status(400).json({ error: 'Score must be a number between 0 and 100' });
+  }
+  if (!db.getAthlete(athleteId) || !db.getJudge(judgeId)) {
+    return res.status(400).json({ error: 'Athlete or judge not found' });
+  }
+  if (config.overallJudgeEnabled === '1' && (!Number.isFinite(parsedOverallScore) || parsedOverallScore < 0 || parsedOverallScore > 100)) {
+    return res.status(400).json({ error: 'Overall score must be a number between 0 and 100' });
+  }
+  db.submitScore(athleteId, judgeId, score, timeSeconds, overallScore);
   broadcastUpdate(req);
   res.json({ success: true });
 });

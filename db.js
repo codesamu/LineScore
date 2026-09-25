@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { calculateScore } = require('./scoring');
 
 const dbDir = path.join(__dirname, 'db');
 if (!fs.existsSync(dbDir)) {
@@ -36,6 +37,7 @@ db.exec(`
     athlete_id INTEGER,
     judge_id INTEGER,
     score INTEGER,
+    overall_score REAL,
     UNIQUE(athlete_id, judge_id)
   );
   CREATE TABLE IF NOT EXISTS run_times (
@@ -109,7 +111,8 @@ for (const [key, value] of [
   ['timeDeductionEnabled', '1'],
   ['timeMinSeconds', '15'],
   ['timeMaxSeconds', '45'],
-  ['timeDeductionPoints', '0']
+  ['timeDeductionPoints', '0'],
+  ['overallJudgeEnabled', '0']
 ]) {
   const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
   if (exists.count === 0) {
@@ -130,6 +133,10 @@ if (!athleteColumns.includes('country')) {
 }
 if (!athleteColumns.includes('image_url')) {
   db.prepare("ALTER TABLE athletes ADD COLUMN image_url TEXT DEFAULT ''").run();
+}
+const scoreColumns = db.prepare('PRAGMA table_info(scores)').all().map(col => col.name);
+if (!scoreColumns.includes('overall_score')) {
+  db.prepare('ALTER TABLE scores ADD COLUMN overall_score REAL').run();
 }
 
 const normalizeRound = (round) => round === 'finals' ? 'finals' : 'qualification';
@@ -201,8 +208,8 @@ if (fs.existsSync(jsonPath)) {
           data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0, normalizeRound(a.round), a.source_athlete_id || null, a.country || '', a.image_url || ''));
         }
         if (data.scores) {
-          const insertScore = db.prepare('INSERT INTO scores (id, athlete_id, judge_id, score) VALUES (?, ?, ?, ?)');
-          data.scores.forEach(s => insertScore.run(s.id, s.athlete_id, s.judge_id, s.score));
+          const insertScore = db.prepare('INSERT INTO scores (id, athlete_id, judge_id, score, overall_score) VALUES (?, ?, ?, ?, ?)');
+          data.scores.forEach(s => insertScore.run(s.id, s.athlete_id, s.judge_id, s.score, s.overall_score ?? null));
         }
         if (data.config) {
           const insertConfig = db.prepare('INSERT INTO config (key, value) VALUES (?, ?)');
@@ -321,7 +328,7 @@ module.exports = {
     })();
   },
 
-  submitScore: (athleteId, judgeId, score, timeSeconds = null) => {
+  submitScore: (athleteId, judgeId, score, timeSeconds = null, overallScore = null) => {
     const aId = parseInt(athleteId, 10);
     const jId = parseInt(judgeId, 10);
     const sVal = Number(score);
@@ -331,8 +338,11 @@ module.exports = {
     const isTimeJudge = timeDeductionEnabled && Number.isInteger(timeJudgeId) && timeJudgeId === jId;
     const hasTimeSeconds = timeSeconds !== null && timeSeconds !== undefined && timeSeconds !== '';
     const tVal = hasTimeSeconds ? Number(timeSeconds) : null;
+    const overallJudgeEnabled = config.overallJudgeEnabled === '1';
+    const hasOverallScore = overallScore !== null && overallScore !== undefined && overallScore !== '';
+    const overallVal = hasOverallScore ? Number(overallScore) : null;
 
-    if (isNaN(aId) || isNaN(jId) || !Number.isFinite(sVal)) {
+    if (isNaN(aId) || isNaN(jId) || !Number.isFinite(sVal) || sVal < 0 || sVal > 100 || (overallJudgeEnabled && (!hasOverallScore || !Number.isFinite(overallVal) || overallVal < 0 || overallVal > 100))) {
       throw new Error(`Invalid score submission: athleteId=${athleteId}, judgeId=${judgeId}, score=${score}`);
     }
     if (isTimeJudge && (!hasTimeSeconds || !Number.isFinite(tVal) || tVal < 0)) {
@@ -340,12 +350,14 @@ module.exports = {
     }
 
     db.transaction(() => {
+      const existingScore = db.prepare('SELECT overall_score FROM scores WHERE athlete_id = ? AND judge_id = ?').get(aId, jId);
+      const storedOverallVal = overallJudgeEnabled ? overallVal : (existingScore ? existingScore.overall_score : null);
       db.prepare(`
-        INSERT INTO scores (athlete_id, judge_id, score) 
-        VALUES (?, ?, ?) 
+        INSERT INTO scores (athlete_id, judge_id, score, overall_score)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(athlete_id, judge_id) 
-        DO UPDATE SET score = excluded.score
-      `).run(aId, jId, sVal);
+        DO UPDATE SET score = excluded.score, overall_score = excluded.overall_score
+      `).run(aId, jId, sVal, storedOverallVal);
 
       if (isTimeJudge) {
         db.prepare(`
@@ -357,7 +369,9 @@ module.exports = {
       }
 
       // Check completion
-      const athleteScoresCount = db.prepare('SELECT COUNT(*) as count FROM scores WHERE athlete_id = ?').get(aId).count;
+      const athleteScoresCount = overallJudgeEnabled
+        ? db.prepare('SELECT COUNT(*) as count FROM scores WHERE athlete_id = ? AND overall_score IS NOT NULL').get(aId).count
+        : db.prepare('SELECT COUNT(*) as count FROM scores WHERE athlete_id = ?').get(aId).count;
       const judgeCount = db.prepare('SELECT COUNT(*) as count FROM judges').get().count;
 
       if (athleteScoresCount >= judgeCount && judgeCount > 0) {
@@ -376,6 +390,22 @@ module.exports = {
     return db.prepare('SELECT * FROM scores WHERE athlete_id = ?').all(parseInt(athleteId, 10));
   },
 
+  refreshCompletionStatus: () => {
+    const overallJudgeEnabled = module.exports.getConfig().overallJudgeEnabled === '1';
+    const judgeCount = db.prepare('SELECT COUNT(*) as count FROM judges').get().count;
+    const athletes = db.prepare('SELECT id FROM athletes').all();
+    const update = db.prepare('UPDATE athletes SET completed = ? WHERE id = ?');
+    db.transaction(() => {
+      athletes.forEach(({ id }) => {
+        const query = overallJudgeEnabled
+          ? 'SELECT COUNT(*) as count FROM scores WHERE athlete_id = ? AND overall_score IS NOT NULL'
+          : 'SELECT COUNT(*) as count FROM scores WHERE athlete_id = ?';
+        const scoreCount = db.prepare(query).get(id).count;
+        update.run(judgeCount > 0 && scoreCount >= judgeCount ? 1 : 0, id);
+      });
+    })();
+  },
+
   getDatabaseSnapshot: (round) => {
     const activeRound = round ? normalizeRound(round) : null;
     const athleteWhere = activeRound ? 'WHERE round = ?' : '';
@@ -389,7 +419,8 @@ module.exports = {
         athletes.name AS athlete_name,
         scores.judge_id,
         judges.username AS judge_name,
-        scores.score
+        scores.score,
+        scores.overall_score
       FROM scores
       LEFT JOIN athletes ON athletes.id = scores.athlete_id
       LEFT JOIN judges ON judges.id = scores.judge_id
@@ -411,7 +442,7 @@ module.exports = {
       ORDER BY athletes.order_index ASC, athletes.id ASC, judges.id ASC
     `).all(...params);
 
-    const scoreLookup = new Map(scores.map(score => [`${score.athlete_id}:${score.judge_id}`, score.score]));
+    const scoreLookup = new Map(scores.map(score => [`${score.athlete_id}:${score.judge_id}`, score]));
     const timeLookup = new Map(times.map(time => [`${time.athlete_id}:${time.judge_id}`, time.time_seconds]));
     const matrix = athletes.map(athlete => ({
       athlete_id: athlete.id,
@@ -423,7 +454,8 @@ module.exports = {
       scores: judges.map(judge => ({
         judge_id: judge.id,
         judge_name: judge.username,
-        score: scoreLookup.has(`${athlete.id}:${judge.id}`) ? scoreLookup.get(`${athlete.id}:${judge.id}`) : null,
+        score: scoreLookup.has(`${athlete.id}:${judge.id}`) ? scoreLookup.get(`${athlete.id}:${judge.id}`).score : null,
+        overall_score: scoreLookup.has(`${athlete.id}:${judge.id}`) ? scoreLookup.get(`${athlete.id}:${judge.id}`).overall_score : null,
         time_seconds: timeLookup.has(`${athlete.id}:${judge.id}`) ? timeLookup.get(`${athlete.id}:${judge.id}`) : null
       }))
     }));
@@ -434,6 +466,7 @@ module.exports = {
   getLeaderboard: (round) => {
     const config = module.exports.getConfig();
     const formula = config.scoringFormula || 'sum';
+    const overallJudgeEnabled = config.overallJudgeEnabled === '1';
     const activeRound = normalizeRound(round || config.currentRound);
     const timeDeductionEnabled = config.timeDeductionEnabled !== '0';
     const timeJudgeId = parseInt(config.timeJudgeId, 10);
@@ -452,42 +485,14 @@ module.exports = {
       const timeEntry = hasTimeJudge ? allTimes.find(t => t.athlete_id === athlete.id && t.judge_id === timeJudgeId) : null;
       const timeSeconds = timeEntry ? Number(timeEntry.time_seconds) : null;
       const scores = athleteScores.map(s => Number(s.score));
-      let total_score = 0;
-
-      if (scores.length > 0) {
-        switch (formula) {
-          case 'average': {
-            const sum = scores.reduce((a, b) => a + b, 0);
-            total_score = Math.round(sum / scores.length);
-            break;
-          }
-          case 'drop-lowest': {
-            if (scores.length > 1) {
-              const sorted = [...scores].sort((a, b) => a - b);
-              sorted.shift(); // remove lowest
-              total_score = sorted.reduce((a, b) => a + b, 0);
-            } else {
-              total_score = scores[0];
-            }
-            break;
-          }
-          case 'drop-highest': {
-            if (scores.length > 1) {
-              const sorted = [...scores].sort((a, b) => a - b);
-              sorted.pop(); // remove highest
-              total_score = sorted.reduce((a, b) => a + b, 0);
-            } else {
-              total_score = scores[0];
-            }
-            break;
-          }
-          case 'sum':
-          default: {
-            total_score = scores.reduce((a, b) => a + b, 0);
-            break;
-          }
-        }
-      }
+      const overallScores = athleteScores
+        .map(s => s.overall_score)
+        .filter(score => score !== null && score !== undefined && score !== '')
+        .map(Number)
+        .filter(Number.isFinite);
+      const calculatedScore = calculateScore({ scores, overallScores, formula, overallJudgeEnabled });
+      let total_score = calculatedScore.total;
+      const overall_score = calculatedScore.overallScore;
 
       const timeDeduction = (
         timeEntry &&
@@ -513,6 +518,8 @@ module.exports = {
         image_url: athlete.image_url || '',
         total_score,
         score_count: scores.length,
+        overall_score,
+        overall_score_count: overallScores.length,
         time_seconds: timeEntry ? timeSeconds : null,
         time_deduction: timeDeduction
       };
@@ -654,7 +661,8 @@ module.exports = {
       timeDeductionEnabled: '1',
       timeMinSeconds: '15',
       timeMaxSeconds: '45',
-      timeDeductionPoints: '0'
+      timeDeductionPoints: '0',
+      overallJudgeEnabled: '0'
     };
   },
 
@@ -688,7 +696,7 @@ module.exports = {
 
           copyUploadedTable('judges', ['id', 'username', 'pin', 'access_token']);
           copyUploadedTable('athletes', ['id', 'name', 'order_index', 'completed', 'round', 'source_athlete_id', 'country', 'image_url']);
-          copyUploadedTable('scores', ['id', 'athlete_id', 'judge_id', 'score']);
+          copyUploadedTable('scores', ['id', 'athlete_id', 'judge_id', 'score', 'overall_score']);
           if (uploadedTables.includes('run_times')) {
             copyUploadedTable('run_times', ['id', 'athlete_id', 'judge_id', 'time_seconds']);
           } else {
@@ -712,7 +720,8 @@ module.exports = {
         ['timeDeductionEnabled', '1'],
         ['timeMinSeconds', '15'],
         ['timeMaxSeconds', '45'],
-        ['timeDeductionPoints', '0']
+        ['timeDeductionPoints', '0'],
+        ['overallJudgeEnabled', '0']
       ]) {
         const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
         if (exists.count === 0) {
