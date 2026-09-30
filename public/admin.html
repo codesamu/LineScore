@@ -52,12 +52,26 @@
                 <form id="add-athlete-form" class="flex-row">
                     <input type="text" id="athlete-name-input" placeholder="Athlete Name" required class="flex-grow">
                     <input type="text" id="athlete-country-input" placeholder="Country" class="flex-grow">
+                    <select id="athlete-age-input" aria-label="Age category"><option value="youth">Youth</option><option value="adult" selected>Adult</option></select>
+                    <select id="athlete-gender-input" aria-label="Gender"><option value="male" selected>Male</option><option value="female">Female</option></select>
                     <button type="submit" class="btn-primary">Add</button>
                 </form>
             </section>
 
             <section class="card admin-panel athletes-panel">
                 <h3>Manage Athletes</h3>
+                <div class="round-view-switch mb-2" id="admin-athlete-stage-switch" aria-label="Athlete stage">
+                    <button type="button" class="round-view-btn active" data-athlete-stage="qualification">Qualification</button>
+                    <button type="button" class="round-view-btn" data-athlete-stage="finals">Finals</button>
+                </div>
+                <div class="round-view-switch mb-2" id="admin-athlete-age-switch" aria-label="Athlete age group">
+                    <button type="button" class="round-view-btn active" data-athlete-age="youth">Youth</button>
+                    <button type="button" class="round-view-btn" data-athlete-age="adult">Adult</button>
+                </div>
+                <div class="round-view-switch mb-4 hidden" id="admin-athlete-gender-switch" aria-label="Athlete gender">
+                    <button type="button" class="round-view-btn active" data-athlete-gender="male">Male</button>
+                    <button type="button" class="round-view-btn" data-athlete-gender="female">Female</button>
+                </div>
                 <div id="admin-athletes-list" class="athletes-list">
                     <!-- Populated via JS -->
                 </div>
@@ -77,6 +91,16 @@
 
             <section class="card admin-panel round-panel">
                 <h3>Competition Round</h3>
+                <div class="form-group">
+                    <label for="current-category-select">Current Category</label>
+                    <select id="current-category-select">
+                        <option value="youth-male">Youth — Male</option>
+                        <option value="youth-female">Youth — Female</option>
+                        <option value="adult-male" selected>Adult — Male</option>
+                        <option value="adult-female">Adult — Female</option>
+                    </select>
+                    <p class="text-sm mt-2">Qualification uses one mixed start list for both genders within the selected age group.</p>
+                </div>
                 <div class="form-group">
                     <label for="current-round-select">Current Round</label>
                     <select id="current-round-select">
@@ -188,7 +212,7 @@
 
             <section class="card admin-panel danger-zone actions-panel">
                 <h3>Competition Actions</h3>
-                <p class="text-sm mb-2">Use these actions to seed a set of 10 demo athletes or clear the database completely.</p>
+                <p class="text-sm mb-2">Use these actions to seed 16 demo athletes across all four categories or clear the database completely.</p>
                 <div class="flex-row" style="gap: 0.5rem; width: 100%;">
                     <button id="load-preset-btn" class="btn-primary flex-grow" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">Load Demo Preset</button>
                     <button id="reset-competition-btn" class="btn-danger flex-grow">Reset Competition</button>

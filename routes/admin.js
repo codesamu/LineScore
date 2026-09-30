@@ -57,8 +57,9 @@ router.post('/add-athlete', validate({
     name: { required: true }
   }
 }), asyncHandler((req, res) => {
-  const { name, country } = req.body;
-  const id = db.addAthlete(name, undefined, country);
+  const { name, country, ageGroup, gender } = req.body;
+  const [currentAge, currentGender] = db.getCurrentCategory().split('-');
+  const id = db.addAthlete(name, undefined, country, ageGroup || currentAge, gender || currentGender);
   broadcastUpdate(req);
   res.json({ success: true, id });
 }));
@@ -82,7 +83,7 @@ router.put('/reorder-athletes', validate({
   }
 }), asyncHandler((req, res) => {
   const { orders } = req.body;
-  db.reorderAthletes(orders);
+  db.reorderAthletes(orders, req.body.round, req.body.category);
   broadcastUpdate(req);
   res.json({ success: true });
 }));
@@ -357,6 +358,15 @@ router.put('/config', asyncHandler((req, res) => {
         broadcastUpdate(req);
         return res.json({ success: true });
     }
+    if (req.body.hasOwnProperty('currentCategory')) {
+        const validCategories = ['youth-male', 'youth-female', 'adult-male', 'adult-female'];
+        if (!validCategories.includes(req.body.currentCategory)) {
+            return res.status(400).json({ error: 'Invalid currentCategory' });
+        }
+        db.updateConfig({ currentCategory: req.body.currentCategory });
+        broadcastUpdate(req);
+        return res.json({ success: true });
+    }
     if (req.body.hasOwnProperty('finalistsCount')) {
         const finalistsCount = parseInt(req.body.finalistsCount, 10);
         if (!Number.isInteger(finalistsCount) || finalistsCount < 1 || finalistsCount > 100) {
@@ -413,6 +423,7 @@ router.get('/database', asyncHandler((req, res) => {
   res.json({
     currentRound: db.getCurrentRound(),
     finalistsCount: db.getFinalistsCount(),
+    currentCategory: db.getCurrentCategory(),
     qualification: db.getDatabaseSnapshot('qualification'),
     finals: db.getDatabaseSnapshot('finals')
   });
@@ -454,8 +465,8 @@ router.put('/update-athlete/:id', validate({
   }
 }), asyncHandler((req, res) => {
   const { id } = req.params;
-  const { name, order_index, country } = req.body;
-  db.updateAthlete(id, name, order_index, country);
+  const { name, order_index, country, ageGroup, gender } = req.body;
+  db.updateAthlete(id, name, order_index, country, ageGroup, gender);
   broadcastUpdate(req);
   res.json({ success: true });
 }));

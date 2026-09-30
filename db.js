@@ -11,6 +11,9 @@ if (!fs.existsSync(dbDir)) {
 const dbPath = path.join(dbDir, 'database.sqlite');
 const db = new Database(dbPath);
 const managedTables = ['judges', 'athletes', 'scores', 'run_times', 'config'];
+const CATEGORY_AGES = ['youth', 'adult'];
+const CATEGORY_GENDERS = ['male', 'female'];
+const CATEGORIES = CATEGORY_AGES.flatMap(age => CATEGORY_GENDERS.map(gender => `${age}-${gender}`));
 
 const createAccessToken = () => crypto.randomBytes(24).toString('hex');
 
@@ -30,7 +33,9 @@ db.exec(`
     round TEXT DEFAULT 'qualification',
     source_athlete_id INTEGER,
     country TEXT DEFAULT '',
-    image_url TEXT DEFAULT ''
+    image_url TEXT DEFAULT '',
+    age_group TEXT DEFAULT 'adult',
+    gender TEXT DEFAULT 'male'
   );
   CREATE TABLE IF NOT EXISTS scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +57,12 @@ db.exec(`
     value TEXT
   );
 `);
+
+const athleteColumnsAtStart = db.prepare('PRAGMA table_info(athletes)').all().map(col => col.name);
+if (!athleteColumnsAtStart.includes('age_group')) db.prepare("ALTER TABLE athletes ADD COLUMN age_group TEXT DEFAULT 'adult'").run();
+if (!athleteColumnsAtStart.includes('gender')) db.prepare("ALTER TABLE athletes ADD COLUMN gender TEXT DEFAULT 'male'").run();
+db.prepare("UPDATE athletes SET age_group = 'adult' WHERE age_group IS NULL OR age_group NOT IN ('youth', 'adult')").run();
+db.prepare("UPDATE athletes SET gender = 'male' WHERE gender IS NULL OR gender NOT IN ('male', 'female')").run();
 
 const ensureJudgeAccessTokens = () => {
   const judgeColumns = db.prepare('PRAGMA table_info(judges)').all().map(col => col.name);
@@ -112,7 +123,8 @@ for (const [key, value] of [
   ['timeMinSeconds', '15'],
   ['timeMaxSeconds', '45'],
   ['timeDeductionPoints', '0'],
-  ['overallJudgeEnabled', '0']
+  ['overallJudgeEnabled', '0'],
+  ['currentCategory', 'adult-male']
 ]) {
   const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
   if (exists.count === 0) {
@@ -140,6 +152,16 @@ if (!scoreColumns.includes('overall_score')) {
 }
 
 const normalizeRound = (round) => round === 'finals' ? 'finals' : 'qualification';
+const normalizeAgeGroup = (age) => CATEGORY_AGES.includes(String(age).toLowerCase()) ? String(age).toLowerCase() : 'adult';
+const normalizeGender = (gender) => CATEGORY_GENDERS.includes(String(gender).toLowerCase()) ? String(gender).toLowerCase() : 'male';
+const normalizeCategory = (category) => {
+  const [age, gender] = String(category || '').toLowerCase().split('-');
+  return CATEGORIES.includes(`${age}-${gender}`) ? `${age}-${gender}` : 'adult-male';
+};
+const categoryParts = (category) => {
+  const [age, gender] = normalizeCategory(category).split('-');
+  return { age_group: age, gender };
+};
 
 const quoteSqlString = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -204,8 +226,8 @@ if (fs.existsSync(jsonPath)) {
           data.judges.forEach(j => insertJudge.run(j.id, j.username, j.pin, j.access_token || createAccessToken()));
         }
         if (data.athletes) {
-          const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-          data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0, normalizeRound(a.round), a.source_athlete_id || null, a.country || '', a.image_url || ''));
+          const insertAthlete = db.prepare('INSERT INTO athletes (id, name, order_index, completed, round, source_athlete_id, country, image_url, age_group, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+          data.athletes.forEach(a => insertAthlete.run(a.id, a.name, a.order_index, a.completed || 0, normalizeRound(a.round), a.source_athlete_id || null, a.country || '', a.image_url || '', normalizeAgeGroup(a.age_group), normalizeGender(a.gender)));
         }
         if (data.scores) {
           const insertScore = db.prepare('INSERT INTO scores (id, athlete_id, judge_id, score, overall_score) VALUES (?, ?, ?, ?, ?)');
@@ -262,42 +284,58 @@ module.exports = {
     return Number.isInteger(count) && count > 0 ? count : 5;
   },
 
-  getAthletes: (round) => {
+  getCurrentCategory: () => normalizeCategory(module.exports.getConfig().currentCategory),
+
+  getAthletes: (round, category) => {
     const activeRound = normalizeRound(round || module.exports.getCurrentRound());
-    const athletes = db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all(activeRound);
-    const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
-    db.transaction(() => {
-      athletes.forEach((athlete, index) => {
-        const newOrder = index + 1;
-        if (athlete.order_index !== newOrder) {
-          updateOrder.run(newOrder, athlete.id);
-          athlete.order_index = newOrder;
-        }
-      });
-    })();
+    const params = [activeRound];
+    let where = 'round = ?';
+    if (category) {
+      const parts = categoryParts(category);
+      where += ' AND age_group = ? AND gender = ?';
+      params.push(parts.age_group, parts.gender);
+    }
+    const athletes = db.prepare(`SELECT * FROM athletes WHERE ${where} ORDER BY order_index ASC`).all(...params);
+    if (!category) {
+      const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
+      db.transaction(() => {
+        athletes.forEach((athlete, index) => {
+          const newOrder = index + 1;
+          if (athlete.order_index !== newOrder) {
+            updateOrder.run(newOrder, athlete.id);
+            athlete.order_index = newOrder;
+          }
+        });
+      })();
+    }
     return athletes;
   },
 
   getAthlete: (id) => db.prepare('SELECT * FROM athletes WHERE id = ?').get(parseInt(id, 10)),
 
-  addAthlete: (name, round, country = '') => {
+  addAthlete: (name, round, country = '', ageGroup, gender) => {
     const activeRound = normalizeRound(round || module.exports.getCurrentRound());
-    const maxOrderRow = db.prepare('SELECT MAX(order_index) as maxOrder FROM athletes WHERE round = ?').get(activeRound);
+    const selected = categoryParts(`${ageGroup || ''}-${gender || ''}`);
+    const maxOrderRow = activeRound === 'qualification'
+      ? db.prepare("SELECT MAX(order_index) as maxOrder FROM athletes WHERE round = ? AND age_group = ?").get(activeRound, selected.age_group)
+      : db.prepare('SELECT MAX(order_index) as maxOrder FROM athletes WHERE round = ? AND age_group = ? AND gender = ?').get(activeRound, selected.age_group, selected.gender);
     const nextOrder = (maxOrderRow.maxOrder || 0) + 1;
-    const info = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, 0, ?, NULL, ?, ?)').run(name, nextOrder, activeRound, String(country || '').trim(), '');
+    const info = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url, age_group, gender) VALUES (?, ?, 0, ?, NULL, ?, ?, ?, ?)').run(name, nextOrder, activeRound, String(country || '').trim(), '', selected.age_group, selected.gender);
     return info.lastInsertRowid;
   },
 
   removeAthlete: (id) => {
     const athleteId = parseInt(id, 10);
-    const athlete = db.prepare('SELECT round FROM athletes WHERE id = ?').get(athleteId);
+    const athlete = db.prepare('SELECT round, age_group, gender FROM athletes WHERE id = ?').get(athleteId);
     const athleteRound = normalizeRound(athlete && athlete.round);
     db.transaction(() => {
       db.prepare('DELETE FROM athletes WHERE id = ?').run(athleteId);
       db.prepare('DELETE FROM scores WHERE athlete_id = ?').run(athleteId);
       db.prepare('DELETE FROM run_times WHERE athlete_id = ?').run(athleteId);
       
-      const athletes = db.prepare('SELECT id FROM athletes WHERE round = ? ORDER BY order_index ASC').all(athleteRound);
+      const athletes = athleteRound === 'qualification'
+        ? db.prepare('SELECT id FROM athletes WHERE round = ? AND age_group = ? ORDER BY order_index ASC').all(athleteRound, athlete.age_group)
+        : db.prepare('SELECT id FROM athletes WHERE round = ? AND age_group = ? AND gender = ? ORDER BY order_index ASC').all(athleteRound, athlete.age_group, athlete.gender);
       const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
       athletes.forEach((a, idx) => {
         updateOrder.run(idx + 1, a.id);
@@ -305,23 +343,30 @@ module.exports = {
     })();
   },
 
-  updateAthlete: (id, name, order_index, country = '') => {
-    db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ? WHERE id = ?').run(name, parseInt(order_index, 10), String(country || '').trim(), parseInt(id, 10));
+  updateAthlete: (id, name, order_index, country = '', ageGroup, gender) => {
+    const selected = categoryParts(`${ageGroup || ''}-${gender || ''}`);
+    db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ?, age_group = ?, gender = ? WHERE id = ?').run(name, parseInt(order_index, 10), String(country || '').trim(), selected.age_group, selected.gender, parseInt(id, 10));
   },
 
   updateAthleteImage: (id, imageUrl) => {
     db.prepare('UPDATE athletes SET image_url = ? WHERE id = ?').run(String(imageUrl || '').trim(), parseInt(id, 10));
   },
 
-  reorderAthletes: (orders, round) => {
+  reorderAthletes: (orders, round, category) => {
     const activeRound = normalizeRound(round || module.exports.getCurrentRound());
+    const isMixedCategory = String(category || '').toLowerCase().endsWith('-mixed');
+    const selected = isMixedCategory
+      ? { age_group: String(category).toLowerCase().split('-')[0], gender: null }
+      : categoryParts(category);
     db.transaction(() => {
       const updateOrder = db.prepare('UPDATE athletes SET order_index = ? WHERE id = ?');
       orders.forEach(item => {
         updateOrder.run(parseInt(item.order_index, 10), parseInt(item.id, 10));
       });
       
-      const athletes = db.prepare('SELECT id FROM athletes WHERE round = ? ORDER BY order_index ASC').all(activeRound);
+      const athletes = activeRound === 'qualification'
+        ? db.prepare('SELECT id FROM athletes WHERE round = ? AND age_group = ? ORDER BY order_index ASC').all(activeRound, selected.age_group)
+        : db.prepare('SELECT id FROM athletes WHERE round = ? AND age_group = ? AND gender = ? ORDER BY order_index ASC').all(activeRound, selected.age_group, selected.gender);
       athletes.forEach((a, idx) => {
         updateOrder.run(idx + 1, a.id);
       });
@@ -463,7 +508,7 @@ module.exports = {
     return { athletes, judges, scores, times, matrix };
   },
 
-  getLeaderboard: (round) => {
+  getLeaderboard: (round, category) => {
     const config = module.exports.getConfig();
     const formula = config.scoringFormula || 'sum';
     const overallJudgeEnabled = config.overallJudgeEnabled === '1';
@@ -476,7 +521,13 @@ module.exports = {
     const timeDeductionPoints = Number(config.timeDeductionPoints || 0);
 
     // Get raw data: all athletes with their individual scores
-    const athletes = db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all(activeRound);
+    const isMixedCategory = String(category || '').toLowerCase().endsWith('-mixed');
+    const categoryFilter = category && !isMixedCategory ? categoryParts(category) : null;
+    const athletes = isMixedCategory
+      ? db.prepare('SELECT * FROM athletes WHERE round = ? AND age_group = ? ORDER BY order_index ASC').all(activeRound, String(category).toLowerCase().split('-')[0])
+      : categoryFilter
+        ? db.prepare('SELECT * FROM athletes WHERE round = ? AND age_group = ? AND gender = ? ORDER BY order_index ASC').all(activeRound, categoryFilter.age_group, categoryFilter.gender)
+        : db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all(activeRound);
     const allScores = db.prepare('SELECT * FROM scores').all();
     const allTimes = db.prepare('SELECT * FROM run_times').all();
 
@@ -516,6 +567,9 @@ module.exports = {
         round: athlete.round,
         country: athlete.country || '',
         image_url: athlete.image_url || '',
+        age_group: athlete.age_group || 'adult',
+        gender: athlete.gender || 'male',
+        category: `${athlete.age_group || 'adult'}-${athlete.gender || 'male'}`,
         total_score,
         score_count: scores.length,
         overall_score,
@@ -525,8 +579,16 @@ module.exports = {
       };
     });
 
-    // Sort by total_score descending, then by id ascending
+    // Qualification is displayed in one mixed start order, but each division has its own rank.
     result.sort((a, b) => b.total_score - a.total_score || a.id - b.id);
+    const rankGroups = new Map();
+    const separateGenderRanks = !isMixedCategory;
+    result.forEach(athlete => {
+      const key = separateGenderRanks ? `${athlete.age_group}-${athlete.gender}` : 'mixed';
+      if (!rankGroups.has(key)) rankGroups.set(key, []);
+      rankGroups.get(key).push(athlete);
+    });
+    rankGroups.forEach(group => group.forEach((athlete, index) => { athlete.category_rank = index + 1; }));
     return result;
   },
 
@@ -539,7 +601,7 @@ module.exports = {
       db.prepare("INSERT INTO config (key, value) VALUES ('currentRound', 'qualification') ON CONFLICT(key) DO UPDATE SET value = 'qualification'").run();
 
       if (dummyAthletesList && dummyAthletesList.length > 0) {
-        const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, ?, ?, NULL, ?, ?)');
+        const insertAthlete = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url, age_group, gender) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)');
         const insertScore = db.prepare('INSERT INTO scores (athlete_id, judge_id, score) VALUES (?, ?, ?)');
         const insertTime = db.prepare('INSERT INTO run_times (athlete_id, judge_id, time_seconds) VALUES (?, ?, ?)');
         const judges = db.prepare('SELECT id FROM judges').all();
@@ -557,7 +619,7 @@ module.exports = {
         }
         
         dummyAthletesList.forEach(athlete => {
-          const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed, normalizeRound(athlete.round), athlete.country || '', athlete.image_url || '');
+          const info = insertAthlete.run(athlete.name, athlete.order, athlete.completed, normalizeRound(athlete.round), athlete.country || '', athlete.image_url || '', normalizeAgeGroup(athlete.ageGroup), normalizeGender(athlete.gender));
           const aId = info.lastInsertRowid;
           
           if (athlete.completed && athlete.scores && athlete.scores.length > 0) {
@@ -576,16 +638,22 @@ module.exports = {
 
   loadPreset: () => {
     const dummyAthletes = [
-      { name: 'Sarah Maier', country: 'Austria', order: 1, completed: 1, scores: [95, 92, 94, 96, 93, 95], timeSeconds: 32.45 },
-      { name: 'Johannes Brandl', country: 'Germany', order: 2, completed: 1, scores: [85, 90, 88, 92, 89, 87], timeSeconds: 48.12 },
-      { name: 'Maximilian Fuchs', country: 'Switzerland', order: 3, completed: 1, scores: [78, 82, 80, 85, 79, 81], timeSeconds: 14.87 },
-      { name: 'Elena Wagner', country: 'Austria', order: 4, completed: 1, scores: [88, 86, 89, 90, 87, 85], timeSeconds: 27.63 },
-      { name: 'Lukas Pichler', country: 'Italy', order: 5, completed: 1, scores: [72, 75, 74, 76, 73, 71], timeSeconds: 44.2 },
-      { name: 'Anna Steiner', country: 'Slovenia', order: 6, completed: 1, scores: [91, 89, 93, 92, 90, 94], timeSeconds: 36.08 },
-      { name: 'David Hofer', country: 'Austria', order: 7, completed: 0, scores: [] },
-      { name: 'Julia Gruber', country: 'Germany', order: 8, completed: 0, scores: [] },
-      { name: 'Felix Berger', country: 'Switzerland', order: 9, completed: 0, scores: [] },
-      { name: 'Lisa Moser', country: 'Italy', order: 10, completed: 0, scores: [] }
+      { name: 'Mia Huber', country: 'Austria', ageGroup: 'youth', gender: 'female', order: 1, completed: 1, scores: [91, 94, 89, 93, 90, 92], timeSeconds: 31.4 },
+      { name: 'Noah Bauer', country: 'Germany', ageGroup: 'youth', gender: 'male', order: 2, completed: 1, scores: [87, 90, 86, 88, 89, 85], timeSeconds: 34.2 },
+      { name: 'Emma Leitner', country: 'Austria', ageGroup: 'adult', gender: 'female', order: 3, completed: 1, scores: [95, 92, 94, 96, 93, 95], timeSeconds: 28.7 },
+      { name: 'Lukas Gruber', country: 'Switzerland', ageGroup: 'adult', gender: 'male', order: 4, completed: 1, scores: [85, 90, 88, 92, 89, 87], timeSeconds: 36.1 },
+      { name: 'Sophie Wagner', country: 'Slovenia', ageGroup: 'youth', gender: 'female', order: 5, completed: 1, scores: [82, 85, 84, 86, 81, 83], timeSeconds: 42.5 },
+      { name: 'Felix Hofer', country: 'Italy', ageGroup: 'youth', gender: 'male', order: 6, completed: 1, scores: [79, 83, 81, 85, 80, 82], timeSeconds: 39.8 },
+      { name: 'Laura Steiner', country: 'Germany', ageGroup: 'adult', gender: 'female', order: 7, completed: 1, scores: [88, 86, 89, 90, 87, 85], timeSeconds: 32.6 },
+      { name: 'David Fuchs', country: 'Austria', ageGroup: 'adult', gender: 'male', order: 8, completed: 1, scores: [78, 82, 80, 85, 79, 81], timeSeconds: 44.2 },
+      { name: 'Anna Moser', country: 'Italy', ageGroup: 'youth', gender: 'female', order: 9, completed: 0, scores: [] },
+      { name: 'Paul Berger', country: 'Switzerland', ageGroup: 'youth', gender: 'male', order: 10, completed: 0, scores: [] },
+      { name: 'Clara Pichler', country: 'Austria', ageGroup: 'adult', gender: 'female', order: 11, completed: 0, scores: [] },
+      { name: 'Jonas Maier', country: 'Germany', ageGroup: 'adult', gender: 'male', order: 12, completed: 0, scores: [] },
+      { name: 'Lena Hofer', country: 'Slovenia', ageGroup: 'youth', gender: 'female', order: 13, completed: 0, scores: [] },
+      { name: 'Max Steiner', country: 'Italy', ageGroup: 'youth', gender: 'male', order: 14, completed: 0, scores: [] },
+      { name: 'Nina Fuchs', country: 'Austria', ageGroup: 'adult', gender: 'female', order: 15, completed: 0, scores: [] },
+      { name: 'Tobias Wagner', country: 'Switzerland', ageGroup: 'adult', gender: 'male', order: 16, completed: 0, scores: [] }
     ];
     module.exports.resetCompetition(dummyAthletes);
   },
@@ -610,8 +678,8 @@ module.exports = {
       const existingFinalists = db.prepare('SELECT * FROM athletes WHERE round = ? ORDER BY order_index ASC').all('finals');
       const existingBySource = new Map(existingFinalists.filter(finalist => finalist.source_athlete_id).map(finalist => [finalist.source_athlete_id, finalist]));
       const keepIds = new Set();
-      const insertFinalist = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url) VALUES (?, ?, 0, ?, ?, ?, ?)');
-      const updateFinalist = db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ?, image_url = ? WHERE id = ?');
+      const insertFinalist = db.prepare('INSERT INTO athletes (name, order_index, completed, round, source_athlete_id, country, image_url, age_group, gender) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)');
+      const updateFinalist = db.prepare('UPDATE athletes SET name = ?, order_index = ?, country = ?, image_url = ?, age_group = ?, gender = ? WHERE id = ?');
       const deleteFinalist = db.prepare('DELETE FROM athletes WHERE id = ?');
       const deleteScores = db.prepare('DELETE FROM scores WHERE athlete_id = ?');
 
@@ -619,11 +687,11 @@ module.exports = {
         const finalsOrder = qualifiers.length - index;
         const existing = existingBySource.get(qualifier.id) || existingFinalists.find(finalist => !finalist.source_athlete_id && finalist.name === qualifier.name);
         if (existing) {
-          updateFinalist.run(qualifier.name, finalsOrder, qualifier.country || '', qualifier.image_url || '', existing.id);
+          updateFinalist.run(qualifier.name, finalsOrder, qualifier.country || '', qualifier.image_url || '', qualifier.age_group, qualifier.gender, existing.id);
           db.prepare('UPDATE athletes SET source_athlete_id = ? WHERE id = ?').run(qualifier.id, existing.id);
           keepIds.add(existing.id);
         } else {
-          const info = insertFinalist.run(qualifier.name, finalsOrder, 'finals', qualifier.id, qualifier.country || '', qualifier.image_url || '');
+          const info = insertFinalist.run(qualifier.name, finalsOrder, 'finals', qualifier.id, qualifier.country || '', qualifier.image_url || '', qualifier.age_group, qualifier.gender);
           keepIds.add(info.lastInsertRowid);
         }
       });
@@ -663,6 +731,7 @@ module.exports = {
       timeMaxSeconds: '45',
       timeDeductionPoints: '0',
       overallJudgeEnabled: '0'
+      ,currentCategory: 'adult-male'
     };
   },
 
@@ -722,6 +791,7 @@ module.exports = {
         ['timeMaxSeconds', '45'],
         ['timeDeductionPoints', '0'],
         ['overallJudgeEnabled', '0']
+        ,['currentCategory', 'adult-male']
       ]) {
         const exists = db.prepare('SELECT COUNT(*) as count FROM config WHERE key = ?').get(key);
         if (exists.count === 0) {

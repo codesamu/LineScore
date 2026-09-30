@@ -793,6 +793,19 @@ footer {
 .athletes-panel { grid-column: span 8; }
 .judges-panel { grid-column: span 6; }
 .round-panel { grid-column: span 6; }
+
+.admin-athlete-category-section {
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.admin-athlete-category-section h4 {
+    margin: 0 0 0.75rem;
+    color: var(--accent-color);
+}
 .scoring-panel { grid-column: span 4; }
 .time-panel { grid-column: span 4; }
 .tv-panel { grid-column: span 4; }

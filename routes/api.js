@@ -89,7 +89,11 @@ router.get('/judges', asyncHandler((req, res) => {
 
 // Get Current Athlete (Pending / Active)
 router.get('/current-athlete', asyncHandler((req, res) => {
-  const athletes = db.getAthletes();
+  const config = db.getConfig();
+  const ageGroup = db.getCurrentCategory().split('-')[0];
+  const athletes = db.getAthletes(undefined, `${ageGroup}-male`)
+    .concat(db.getAthletes(undefined, `${ageGroup}-female`))
+    .sort((a, b) => a.order_index - b.order_index);
   const active = athletes.find(a => a.completed === 0);
   
   if (!active) {
@@ -98,7 +102,6 @@ router.get('/current-athlete', asyncHandler((req, res) => {
 
   // Get submitted judge IDs for this athlete
   const scores = db.getScoresForAthlete(active.id);
-  const config = db.getConfig();
   const submittedJudgeIds = scores
     .filter(s => config.overallJudgeEnabled !== '1' || s.overall_score !== null)
     .map(s => s.judge_id);
@@ -157,13 +160,22 @@ router.get('/scores/:athleteId/:judgeId', validate({
 
 // Get Leaderboard (calculated dynamically)
 router.get('/leaderboard', asyncHandler((req, res) => {
-  const leaderboard = db.getLeaderboard(req.query.round);
+  const leaderboard = db.getLeaderboard(req.query.round, req.query.category);
   res.json(leaderboard);
 }));
 
 // Get all athletes (for admin and judge past athletes view)
 router.get('/athletes', asyncHandler((req, res) => {
-  const athletes = db.getAthletes(req.query.round);
+  let category = req.query.category;
+  if (!category) {
+    const [age] = db.getCurrentCategory().split('-');
+    category = `${age}-mixed`;
+  }
+  const athletes = category.endsWith('-mixed')
+    ? db.getAthletes(req.query.round, `${category.split('-')[0]}-male`)
+        .concat(db.getAthletes(req.query.round, `${category.split('-')[0]}-female`))
+        .sort((a, b) => a.order_index - b.order_index)
+    : db.getAthletes(req.query.round, category);
   const sorted = [...athletes].sort((a,b) => a.order_index - b.order_index);
   res.json(sorted);
 }));

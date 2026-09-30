@@ -192,10 +192,13 @@ function initLeaderboard() {
     const containerEl = document.querySelector('.container');
     let activeView = 'current';
     let selectedRound = 'qualification';
+    let selectedCategory = 'adult-male';
+    let selectedCategoryInitialized = false;
     let selectedRoundInitialized = false;
     let latestConfig = {};
     let latestCurrentData = [];
     let latestDisplayData = [];
+    let latestStartlistData = [];
 
     function isValidRound(round) {
         return round === 'finals' || round === 'qualification';
@@ -218,6 +221,9 @@ function initLeaderboard() {
         containerEl.classList.toggle('split-container', view === 'split');
         if (roundViewSwitch) {
             roundViewSwitch.classList.toggle('hidden', view === 'current');
+        }
+        if (categoryViewSwitch) {
+            categoryViewSwitch.classList.toggle('hidden', view === 'current');
         }
 
         renderPublicViews();
@@ -249,6 +255,14 @@ function initLeaderboard() {
                 loadData();
             });
         });
+    }
+    const categoryViewSwitch = document.getElementById('category-view-switch');
+    if (categoryViewSwitch) {
+        categoryViewSwitch.querySelectorAll('.category-view-btn').forEach(btn => btn.addEventListener('click', () => {
+            selectedCategory = btn.dataset.category;
+            categoryViewSwitch.querySelectorAll('.category-view-btn').forEach(option => option.classList.toggle('active', option === btn));
+            loadData();
+        }));
     }
 
     // TV Mode Controller & Dynamic State
@@ -533,6 +547,11 @@ function initLeaderboard() {
                 selectedRoundInitialized = true;
                 updateRoundSwitch();
             }
+            if (!selectedCategoryInitialized && cfg.currentCategory && ['youth-mixed', 'adult-mixed', 'youth-male', 'youth-female', 'adult-male', 'adult-female'].includes(cfg.currentCategory)) {
+                selectedCategory = cfg.currentCategory;
+                selectedCategoryInitialized = true;
+                if (categoryViewSwitch) categoryViewSwitch.querySelectorAll('.category-view-btn').forEach(option => option.classList.toggle('active', option.dataset.category === selectedCategory));
+            }
 
             applyBrandingVisibility(cfg.isLicensed);
             applyAppName(cfg.appName);
@@ -548,12 +567,19 @@ function initLeaderboard() {
 
             const currentRound = isValidRound(cfg.currentRound) ? cfg.currentRound : 'qualification';
             const shouldPreviewFinals = selectedRound === 'finals' && currentRound === 'qualification';
-            const [currentData, selectedData] = await Promise.all([
-                fetchAPI(`/leaderboard?round=${encodeURIComponent(currentRound)}`),
-                fetchAPI(`/leaderboard?round=${encodeURIComponent(shouldPreviewFinals ? 'qualification' : selectedRound)}`)
+            const currentPoolCategory = currentRound === 'qualification'
+                ? `${String(cfg.currentCategory || selectedCategory).split('-')[0]}-mixed`
+                : (cfg.currentCategory || selectedCategory);
+            const [currentData, selectedData, startlistData] = await Promise.all([
+                fetchAPI(`/leaderboard?round=${encodeURIComponent(currentRound)}&category=${encodeURIComponent(currentPoolCategory)}`),
+                fetchAPI(`/leaderboard?round=${encodeURIComponent(shouldPreviewFinals ? 'qualification' : selectedRound)}&category=${encodeURIComponent(selectedCategory)}`),
+                fetchAPI(`/athletes?round=${encodeURIComponent(selectedRound)}&category=${encodeURIComponent(`${selectedCategory.split('-')[0]}-mixed`)}`)
             ]);
             latestCurrentData = currentData;
             latestDisplayData = shouldPreviewFinals ? buildFinalsPreview(selectedData, cfg) : selectedData;
+            latestStartlistData = selectedRound === 'qualification'
+                ? startlistData.map(athlete => ({ ...athlete, total_score: null, score_count: 0 }))
+                : latestDisplayData;
 
             renderPublicViews();
 
@@ -638,7 +664,8 @@ function initLeaderboard() {
         const currentData = latestCurrentData || [];
         const displayData = activeView === 'current' ? currentData : (latestDisplayData || []);
         renderLeaderboard(displayData);
-        renderStartlist(displayData);
+        const startlistData = activeView === 'current' ? currentData : (latestStartlistData.length ? latestStartlistData : displayData);
+        renderStartlist(startlistData);
         renderTVFeature(currentData);
         renderNextUp(currentData);
     }
@@ -658,7 +685,7 @@ function initLeaderboard() {
             const item = document.createElement('div');
             item.className = 'leaderboard-item';
             item.innerHTML = `
-                <div class="rank">#${index + 1}</div>
+                <div class="rank">#${activeView === 'current' ? index + 1 : (athlete.category_rank || index + 1)}</div>
                 <div class="name"><span class="athlete-name-text">${athlete.name}</span><span class="leaderboard-meta">${renderTimeLabel(athlete)}</span></div>
                 <div class="score">${renderScoreValue(athlete, showFinalsPlaceholders)}</div>
             `;
@@ -1173,15 +1200,27 @@ function initJudge() {
             return;
         }
 
-        // Fetch my scores for all athletes to show what I gave
-        // We could make a bulk endpoint, but for simplicity, we'll just show edit buttons and fetch on click.
-        for (const athlete of athletes) {
+        const athletesWithScores = await Promise.all(athletes.map(async athlete => {
+            try {
+                const score = await fetchAPI(`/scores/${athlete.id}/${judge.id}`);
+                return { athlete, score };
+            } catch (e) {
+                return { athlete, score: null };
+            }
+        }));
+
+        for (const { athlete, score } of athletesWithScores) {
             const item = document.createElement('div');
             item.className = 'athlete-list-item flex-between';
+            const hasScore = score && score.score !== null && score.score !== undefined;
+            const scoreLabel = hasScore
+                ? `Your score: ${score.score} pts${isOverallJudgeEnabled() && score.overall_score !== null && score.overall_score !== undefined ? ` · Overall: ${score.overall_score} pts` : ''}`
+                : 'No score submitted';
             item.innerHTML = `
                 <div>
                     <span class="font-bold">${athlete.name}</span>
                     <span class="status-badge ${athlete.completed ? 'completed' : 'pending'}">${athlete.completed ? 'Completed' : 'Pending'}</span>
+                    <div class="text-sm opacity-70 mt-1">${scoreLabel}</div>
                 </div>
                 <button class="btn-secondary btn-small edit-btn" data-id="${athlete.id}" data-name="${athlete.name}">${isTimeJudge() && isOverallJudgeEnabled() ? 'Edit Score + Overall + Time' : isTimeJudge() ? 'Edit Score + Time' : isOverallJudgeEnabled() ? 'Edit Score + Overall' : 'Edit Score'}</button>
             `;
@@ -1287,6 +1326,9 @@ function initAdmin() {
     const adminDatabaseContent = document.getElementById('admin-database-tab-content');
     let adminConfig = {};
     let adminJudges = [];
+    let athleteManagerStage = 'qualification';
+    let athleteManagerAge = 'youth';
+    let athleteManagerGender = 'male';
 
     checkBranding();
 
@@ -1328,10 +1370,8 @@ function initAdmin() {
 
     async function loadDashboardData() {
         await loadJudges();
-        await Promise.all([
-            loadAthletes(),
-            loadConfigSettings()
-        ]);
+        await loadConfigSettings();
+        await loadAthletes();
     }
 
     if (adminControlsTab && adminDatabaseTab && adminControlsContent && adminDatabaseContent) {
@@ -1548,6 +1588,8 @@ function initAdmin() {
             if (currentRoundEl && cfg.currentRound) {
                 currentRoundEl.value = cfg.currentRound;
             }
+            const currentCategoryEl = document.getElementById('current-category-select');
+            if (currentCategoryEl && cfg.currentCategory) currentCategoryEl.value = cfg.currentCategory;
             const finalistsCountEl = document.getElementById('finalists-count-input');
             if (finalistsCountEl && cfg.finalistsCount) {
                 finalistsCountEl.value = cfg.finalistsCount;
@@ -1597,18 +1639,35 @@ function initAdmin() {
 
     async function loadAthletes() {
         try {
-            const athletes = await fetchAPI('/athletes');
             const listEl = document.getElementById('admin-athletes-list');
             listEl.innerHTML = '';
-
-            if (athletes.length === 0) {
-                listEl.innerHTML = '<p class="text-sm">No athletes added yet.</p>';
+            const categoryGroups = [{
+                category: athleteManagerStage === 'qualification'
+                    ? `${athleteManagerAge}-mixed`
+                    : `${athleteManagerAge}-${athleteManagerGender}`,
+                label: athleteManagerStage === 'qualification'
+                    ? `${athleteManagerAge === 'youth' ? 'Youth' : 'Adult'} (Male + Female)`
+                    : `${athleteManagerAge === 'youth' ? 'Youth' : 'Adult'} ${athleteManagerGender === 'male' ? 'Male' : 'Female'}`
+            }];
+            const groups = await Promise.all(categoryGroups.map(async group => ({
+                ...group,
+                athletes: await fetchAPI(`/athletes?round=${encodeURIComponent(athleteManagerStage)}&category=${encodeURIComponent(group.category)}`)
+            })));
+            const hasAthletes = groups.some(group => group.athletes.length > 0);
+            if (!hasAthletes) {
+                listEl.innerHTML = '<p class="text-sm">No athletes in this stage yet.</p>';
                 return;
             }
 
-            const sortedByOrder = [...athletes].sort((a, b) => a.order_index - b.order_index);
+            groups.forEach(group => {
+                const section = document.createElement('section');
+                section.className = 'admin-athlete-category-section';
+                section.innerHTML = `<h4>${group.label}</h4><div class="admin-athlete-category-list" data-category="${group.category}"></div>`;
+                listEl.appendChild(section);
+                const categoryList = section.querySelector('.admin-athlete-category-list');
+                const sortedByOrder = [...group.athletes].sort((a, b) => a.order_index - b.order_index);
 
-            sortedByOrder.forEach(athlete => {
+                sortedByOrder.forEach((athlete, index) => {
                 const item = document.createElement('div');
                 item.className = 'athlete-list-item flex-between';
                 item.setAttribute('draggable', 'true');
@@ -1631,10 +1690,12 @@ function initAdmin() {
                     <div class="admin-athlete-fields flex-grow">
                         <div class="flex-row" style="align-items: center; gap: 0.5rem;">
                             <span style="color: rgba(255, 255, 255, 0.3); font-size: 1.25rem; cursor: grab; user-select: none;">☰</span>
-                            <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 4.5rem; text-align: center;">N° ${athlete.order_index}</div>
+                            <div class="rank" style="color: var(--accent-color); font-weight: 700; width: 4.5rem; text-align: center;">N° ${index + 1}</div>
                         </div>
                         <input type="text" class="athlete-name-input" value="${escapeHTML(athlete.name)}" placeholder="Athlete Name">
                         <input type="text" class="athlete-country-input" value="${escapeHTML(athlete.country || '')}" placeholder="Country">
+                        <select class="athlete-age-input"><option value="youth" ${athlete.age_group === 'youth' ? 'selected' : ''}>Youth</option><option value="adult" ${athlete.age_group !== 'youth' ? 'selected' : ''}>Adult</option></select>
+                        <select class="athlete-gender-input"><option value="male" ${athlete.gender !== 'female' ? 'selected' : ''}>Male</option><option value="female" ${athlete.gender === 'female' ? 'selected' : ''}>Female</option></select>
                         <span class="athlete-flag-preview">${flag}</span>
                         <input type="url" class="athlete-image-url-input" value="${escapeHTML(imageLinkValue)}" placeholder="Image URL">
                     </div>
@@ -1643,11 +1704,12 @@ function initAdmin() {
                         <button class="btn-secondary btn-small upload-athlete-image-btn" data-id="${athlete.id}">Photo</button>
                         <button class="btn-secondary btn-small save-athlete-image-url-btn" data-id="${athlete.id}">Save Link</button>
                         <button class="btn-primary btn-small import-athlete-image-url-btn" data-id="${athlete.id}">Import URL</button>
-                        <button class="btn-primary btn-small save-athlete-btn" data-id="${athlete.id}" data-order="${athlete.order_index}">Save</button>
+                        <button class="btn-primary btn-small save-athlete-btn" data-id="${athlete.id}" data-order="${index + 1}">Save</button>
                         <button class="btn-danger btn-small delete-btn" data-id="${athlete.id}">Remove</button>
                     </div>
                 `;
-                listEl.appendChild(item);
+                categoryList.appendChild(item);
+                });
             });
 
             document.querySelectorAll('.athlete-country-input').forEach(input => {
@@ -1676,7 +1738,9 @@ function initAdmin() {
                     if (!name) return alert('Name cannot be empty');
 
                     try {
-                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, country, order_index: currentOrder });
+                        const ageGroup = item.querySelector('.athlete-age-input').value;
+                        const gender = item.querySelector('.athlete-gender-input').value;
+                        await fetchAPI(`/admin/update-athlete/${id}`, 'PUT', { name, country, ageGroup, gender, order_index: currentOrder });
                         await loadAthletes();
                     } catch(e) {
                         alert(e.message);
@@ -1753,46 +1817,49 @@ function initAdmin() {
                 btn.addEventListener('click', () => saveAthleteImageUrl(btn, true));
             });
 
-            // HTML5 Drag and Drop listeners
-            listEl.addEventListener('dragstart', (e) => {
-                const item = e.target.closest('.athlete-list-item');
-                if (item) {
-                    item.classList.add('dragging');
-                }
-            });
+            // HTML5 Drag and Drop listeners, scoped to each stage/category section.
+            document.querySelectorAll('.admin-athlete-category-list').forEach(categoryList => {
+                categoryList.addEventListener('dragstart', (e) => {
+                    const item = e.target.closest('.athlete-list-item');
+                    if (item) item.classList.add('dragging');
+                });
 
-            listEl.addEventListener('dragend', async (e) => {
-                const item = e.target.closest('.athlete-list-item');
-                if (item) {
+                categoryList.addEventListener('dragend', async (e) => {
+                    const item = e.target.closest('.athlete-list-item');
+                    if (!item) return;
                     item.classList.remove('dragging');
-                    
-                    const items = Array.from(listEl.querySelectorAll('.athlete-list-item'));
-                    const orders = items.map((el, index) => {
-                        return {
-                            id: el.getAttribute('data-id'),
-                            order_index: index + 1
-                        };
-                    });
-
+                    const preservedScrollY = window.scrollY;
+                    const preservedAthleteListScrollTop = listEl.scrollTop;
+                    const preservedCategoryScrollTop = categoryList.scrollTop;
+                    const reorderedCategory = categoryList.dataset.category;
+                    const items = Array.from(categoryList.querySelectorAll('.athlete-list-item'));
+                    const orders = items.map((el, index) => ({ id: el.getAttribute('data-id'), order_index: index + 1 }));
                     try {
-                        await fetchAPI('/admin/reorder-athletes', 'PUT', { orders });
+                        await fetchAPI('/admin/reorder-athletes', 'PUT', {
+                            orders,
+                            round: athleteManagerStage,
+                            category: categoryList.dataset.category
+                        });
                         await loadAthletes();
+                        requestAnimationFrame(() => {
+                            listEl.scrollTop = preservedAthleteListScrollTop;
+                            const restoredCategoryList = listEl.querySelector(`.admin-athlete-category-list[data-category="${reorderedCategory}"]`);
+                            if (restoredCategoryList) restoredCategoryList.scrollTop = preservedCategoryScrollTop;
+                            window.scrollTo(0, preservedScrollY);
+                        });
                     } catch (e) {
                         alert('Failed to save sequence: ' + e.message);
                     }
-                }
-            });
+                });
 
-            listEl.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                const draggingItem = listEl.querySelector('.dragging');
-                if (!draggingItem) return;
-                const afterElement = getDragAfterElement(listEl, e.clientY);
-                if (afterElement == null) {
-                    listEl.appendChild(draggingItem);
-                } else {
-                    listEl.insertBefore(draggingItem, afterElement);
-                }
+                categoryList.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const draggingItem = categoryList.querySelector('.dragging');
+                    if (!draggingItem) return;
+                    const afterElement = getDragAfterElement(categoryList, e.clientY);
+                    if (afterElement == null) categoryList.appendChild(draggingItem);
+                    else categoryList.insertBefore(draggingItem, afterElement);
+                });
             });
 
             function getDragAfterElement(container, y) {
@@ -1927,13 +1994,15 @@ function initAdmin() {
         e.preventDefault();
         const nameInput = document.getElementById('athlete-name-input');
         const countryInput = document.getElementById('athlete-country-input');
+        const ageInput = document.getElementById('athlete-age-input');
+        const genderInput = document.getElementById('athlete-gender-input');
         const name = nameInput.value;
         const country = countryInput ? normalizeCountryName(countryInput.value) : '';
         if (countryInput) countryInput.value = country;
         if (!name) return;
 
         try {
-            await fetchAPI('/admin/add-athlete', 'POST', { name, country });
+            await fetchAPI('/admin/add-athlete', 'POST', { name, country, ageGroup: ageInput.value, gender: genderInput.value });
             nameInput.value = '';
             if (countryInput) countryInput.value = '';
         } catch(e) {
@@ -1967,7 +2036,7 @@ function initAdmin() {
     });
 
     document.getElementById('load-preset-btn').addEventListener('click', async () => {
-        if(confirm('This will replace the current startlist and scores with the 10 demo athletes. Continue?')) {
+        if(confirm('This will replace the current startlist and scores with 16 demo athletes across all four categories. Continue?')) {
             try {
                 await fetchAPI('/admin/load-preset', 'POST');
             } catch(e) {
@@ -2145,6 +2214,53 @@ function initAdmin() {
             } catch(e) {
                 alert('Failed to update current round: ' + e.message);
             }
+        });
+    }
+
+    const currentCategorySelectEl = document.getElementById('current-category-select');
+    if (currentCategorySelectEl) {
+        currentCategorySelectEl.addEventListener('change', async (e) => {
+            try {
+                await fetchAPI('/admin/config', 'PUT', { currentCategory: e.target.value });
+                adminConfig.currentCategory = e.target.value;
+                await loadAthletes();
+            } catch (error) {
+                alert('Failed to update current category: ' + error.message);
+            }
+        });
+    }
+
+    const athleteStageSwitchEl = document.getElementById('admin-athlete-stage-switch');
+    if (athleteStageSwitchEl) {
+        athleteStageSwitchEl.querySelectorAll('[data-athlete-stage]').forEach(button => {
+            button.addEventListener('click', async () => {
+                athleteManagerStage = button.dataset.athleteStage;
+                athleteStageSwitchEl.querySelectorAll('[data-athlete-stage]').forEach(option => option.classList.toggle('active', option === button));
+                document.getElementById('admin-athlete-gender-switch').classList.toggle('hidden', athleteManagerStage !== 'finals');
+                await loadAthletes();
+            });
+        });
+    }
+
+    const athleteAgeSwitchEl = document.getElementById('admin-athlete-age-switch');
+    if (athleteAgeSwitchEl) {
+        athleteAgeSwitchEl.querySelectorAll('[data-athlete-age]').forEach(button => {
+            button.addEventListener('click', async () => {
+                athleteManagerAge = button.dataset.athleteAge;
+                athleteAgeSwitchEl.querySelectorAll('[data-athlete-age]').forEach(option => option.classList.toggle('active', option === button));
+                await loadAthletes();
+            });
+        });
+    }
+
+    const athleteGenderSwitchEl = document.getElementById('admin-athlete-gender-switch');
+    if (athleteGenderSwitchEl) {
+        athleteGenderSwitchEl.querySelectorAll('[data-athlete-gender]').forEach(button => {
+            button.addEventListener('click', async () => {
+                athleteManagerGender = button.dataset.athleteGender;
+                athleteGenderSwitchEl.querySelectorAll('[data-athlete-gender]').forEach(option => option.classList.toggle('active', option === button));
+                await loadAthletes();
+            });
         });
     }
 
